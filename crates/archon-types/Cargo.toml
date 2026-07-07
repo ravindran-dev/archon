@@ -1,0 +1,10 @@
+[package]
+name = "archon-types"
+description = "Shared package-metadata types for archon: versions, dependencies, provider traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }

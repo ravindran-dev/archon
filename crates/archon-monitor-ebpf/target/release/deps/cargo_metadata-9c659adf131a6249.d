@@ -1,0 +1,11 @@
+/home/ravi/archon/crates/archon-monitor-ebpf/target/release/deps/cargo_metadata-9c659adf131a6249.d: /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs
+
+/home/ravi/archon/crates/archon-monitor-ebpf/target/release/deps/libcargo_metadata-9c659adf131a6249.rlib: /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs
+
+/home/ravi/archon/crates/archon-monitor-ebpf/target/release/deps/libcargo_metadata-9c659adf131a6249.rmeta: /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs /home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs
+
+/home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs:
+/home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs:
+/home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs:
+/home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs:
+/home/ravi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs:

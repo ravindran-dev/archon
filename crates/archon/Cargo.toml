@@ -1,0 +1,23 @@
+[package]
+name = "archon"
+description = "AUR-aware package manager with a security-monitored build sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "archon"
+path = "src/main.rs"
+
+[dependencies]
+archon-types = { workspace = true }
+archon-repo = { workspace = true }
+archon-aur = { workspace = true }
+archon-resolver = { workspace = true }
+archon-sandbox = { workspace = true }
+archon-monitor = { workspace = true }
+archon-monitor-common = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+libc = { workspace = true }
+env_logger = { workspace = true }

@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/archon-types",
+    "crates/archon-repo",
+    "crates/archon-aur",
+    "crates/archon-resolver",
+    "crates/archon-sandbox",
+    "crates/archon-monitor-common",
+    "crates/archon-monitor",
+    "crates/archon",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/ravindran-dev/archon"
+
+[workspace.dependencies]
+# Internal crates
+archon-types = { path = "crates/archon-types" }
+archon-repo = { path = "crates/archon-repo" }
+archon-aur = { path = "crates/archon-aur" }
+archon-resolver = { path = "crates/archon-resolver" }
+archon-sandbox = { path = "crates/archon-sandbox" }
+archon-monitor-common = { path = "crates/archon-monitor-common" }
+archon-monitor = { path = "crates/archon-monitor" }
+
+# External
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tar = "0.4"
+flate2 = "1"
+zstd = "0.13"
+rusqlite = { version = "0.40", features = ["bundled"] }
+aya = "0.14"
+aya-log = "0.3"
+log = "0.4"
+libc = "0.2"
+env_logger = "0.11"

@@ -1,0 +1,10 @@
+[package]
+name = "archon-resolver"
+description = "Dependency graph construction, conflict detection, and install ordering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+archon-types = { workspace = true }
+thiserror = { workspace = true }

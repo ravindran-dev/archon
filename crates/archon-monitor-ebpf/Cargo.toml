@@ -1,0 +1,24 @@
+[workspace]
+
+[package]
+name = "archon-monitor-ebpf"
+description = "eBPF programs monitoring a sandboxed build's execve/openat/connect syscalls"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+aya-ebpf = "0.2"
+aya-log-ebpf = "0.2"
+archon-monitor-common = { path = "../archon-monitor-common" }
+
+[[bin]]
+name = "archon-monitor-ebpf"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+debug = false
+opt-level = 3

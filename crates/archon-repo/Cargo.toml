@@ -1,0 +1,13 @@
+[package]
+name = "archon-repo"
+description = "Parser for pacman sync databases (/var/lib/pacman/sync/*.db)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+archon-types = { workspace = true }
+thiserror = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+zstd = { workspace = true }
