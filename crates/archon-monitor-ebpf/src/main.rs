@@ -2,36 +2,45 @@
 //!
 //! Scoping strategy: a dedicated cgroup, not PID-set propagation.
 //! `archon` (running as root to load this program in the first place)
-//! creates one cgroup per build and moves the sandboxed `bwrap` process
-//! into it before it execs anything; every descendant it forks inherits
-//! cgroup membership automatically — the kernel does that propagation for
-//! free, correctly, with no tracepoint bookkeeping on our side. Each probe
-//! just compares `bpf_get_current_cgroup_id()` against the one target ID
-//! userspace wrote into `TARGET_CGROUP`.
+//! creates one cgroup per build and joins the sandboxed `bwrap` process to
+//! it — from inside `bwrap`'s own `pre_exec`, before it runs a single
+//! instruction; see `archon_sandbox::SandboxRunner::join_cgroup`'s doc
+//! comment for why it has to happen there specifically. Every descendant
+//! the build forks afterward inherits cgroup membership automatically —
+//! the kernel does that propagation for free, correctly, with no
+//! tracepoint bookkeeping on our side. Each probe just compares
+//! `bpf_get_current_cgroup_id()` against the one target ID userspace wrote
+//! into `TARGET_CGROUP`.
 //!
-//! An earlier version of this file tracked descendants itself via a
-//! `sched_process_fork` tracepoint and a `TRACKED_PIDS` map, seeded with
-//! only the root PID. That relied on guessed byte offsets into the
-//! tracepoint's raw format (this sandboxed user can't read
-//! `/sys/kernel/tracing/events/.../format` to confirm them — see the git
-//! history for the reasoning). Live testing against this machine's kernel
-//! showed the guess was wrong: fork propagation silently never fired, so
-//! only bwrap's own setup syscalls were ever observed and everything
-//! `makepkg` and its children did afterward was invisible — the tool
-//! would have shipped with its actual purpose defeated. Cgroup membership
-//! has no such offset to get wrong, which is the whole reason it's the
-//! better design once the loader runs as root anyway.
+//! Two real bugs were found getting here, both only via live testing on a
+//! real kernel:
+//!
+//! 1. An earlier version tracked descendants itself via a
+//!    `sched_process_fork` tracepoint and a `TRACKED_PIDS` map. That
+//!    relied on guessed byte offsets into the tracepoint's raw format
+//!    (this sandboxed user can't read
+//!    `/sys/kernel/tracing/events/.../format` to confirm them), and the
+//!    guess was wrong: fork propagation silently never fired, so only
+//!    bwrap's own setup syscalls were ever observed.
+//! 2. Switching to cgroups, the *first* implementation moved the spawned
+//!    process into the target cgroup from the parent, right after
+//!    `spawn()` returned. That raced `bwrap --unshare-pid`'s internal fork
+//!    (it creates a new process to become PID 1 of the fresh namespace),
+//!    which reliably won the race on this kernel — so the process that
+//!    actually did all the build's work stayed in whatever cgroup the
+//!    *invoking terminal* happened to be in, never the one the monitor was
+//!    watching. Fixed by joining from inside `bwrap`'s own `pre_exec`
+//!    instead, which closes the race entirely (nothing can run before it).
 //!
 //! Field offsets for the syscall tracepoints below are the well-known,
 //! ABI-stable layout used throughout the eBPF ecosystem: every
 //! `sys_enter_*` argument occupies a padded 8-byte slot (kernel's
 //! `__field(long, ...)` via `include/trace/events/syscalls.h`) regardless
-//! of the argument's actual C type width. The live test only exercised
-//! `openat` (bwrap's own pre-exec setup calls came through with correct
-//! paths, confirming that offset) — it never exercised `execve` or
-//! `connect`, because the untracked child described above is exactly the
-//! process that would have called them. Those two offsets are still
-//! unverified against a live kernel; re-test once the cgroup fix lands.
+//! of the argument's actual C type width. The `openat` offset is confirmed
+//! live (bug 2 above was diagnosed from its output); `execve`/`connect`
+//! are unverified pending a live re-test with the `pre_exec` join fix,
+//! since the untracked-worker-process bug meant no tracked process had
+//! called either yet.
 
 #![no_std]
 #![no_main]
@@ -45,7 +54,6 @@ use aya_ebpf::{
     maps::{Array, RingBuf},
     programs::TracePointContext,
 };
-use aya_log_ebpf::debug;
 use archon_monitor_common::{EventKind, SyscallEvent, PATH_LEN};
 
 /// Single-entry map holding the cgroup ID of the build currently under
@@ -73,21 +81,6 @@ fn in_tracked_cgroup() -> bool {
         return false;
     }
     (unsafe { bpf_get_current_cgroup_id() }) == target
-}
-
-/// TEMPORARY diagnostic: logs cgroup-match state for `bwrap`-named
-/// processes only (to avoid flooding the log with every process on the
-/// system's openat calls). Remove once cgroup scoping is confirmed working
-/// against a live kernel.
-#[inline(always)]
-fn debug_cgroup_match(ctx: &TracePointContext) {
-    let comm = bpf_get_current_comm().unwrap_or([0; 16]);
-    if &comm[..5] != b"bwrap" {
-        return;
-    }
-    let target = TARGET_CGROUP.get(0).copied().unwrap_or(0);
-    let current = unsafe { bpf_get_current_cgroup_id() };
-    debug!(ctx, "bwrap openat: current_cgroup={} target_cgroup={}", current, target);
 }
 
 // --- syscalls:sys_enter_execve — flag unexpected tools ---
@@ -126,7 +119,6 @@ pub fn archon_sys_enter_openat(ctx: TracePointContext) -> u32 {
 }
 
 fn try_openat(ctx: TracePointContext) -> Result<u32, u32> {
-    debug_cgroup_match(&ctx);
     if !in_tracked_cgroup() {
         return Ok(0);
     }

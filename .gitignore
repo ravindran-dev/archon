@@ -1,2 +1,7 @@
 /target
+crates/archon-monitor-ebpf/target
 **/*.rs.bk
+*.pkg.tar.zst
+*.pkg.tar.xz
+demo/*/src/
+demo/*/pkg/

@@ -38,17 +38,29 @@ use crate::{srcinfo, ui};
 
 const SYNC_DIR: &str = "/var/lib/pacman/sync";
 
+/// Overridable so integration tests can point at fixture data instead of
+/// the real system — production runs always get the real path/URL since
+/// these env vars are never set outside the test suite.
+fn sync_dir() -> String {
+    std::env::var("ARCHON_SYNC_DIR").unwrap_or_else(|_| SYNC_DIR.to_string())
+}
+
+fn aur_url() -> String {
+    std::env::var("ARCHON_AUR_URL").unwrap_or_else(|_| archon_aur::DEFAULT_AUR_URL.to_string())
+}
+
 pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
     println!("Resolving dependencies for: {}", packages.join(", "));
 
-    let official = OfficialRepos::load(Path::new(SYNC_DIR), archon_repo::DEFAULT_REPO_ORDER)
+    let sync_dir = sync_dir();
+    let official = OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)
         .with_context(|| {
             format!(
-                "failed to load official repo databases from {SYNC_DIR} \
+                "failed to load official repo databases from {sync_dir} \
                  (run `sudo pacman -Sy` if you've never synced)"
             )
         })?;
-    let aur = AurClient::new(archon_aur::DEFAULT_AUR_URL)?;
+    let aur = AurClient::new(aur_url())?;
 
     let providers: Vec<&dyn PackageProvider> = vec![&official, &aur];
     let plan = Resolver::new(providers)
@@ -169,7 +181,7 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
         SandboxRunner::new(&dest)
             .build()
             .with_context(|| format!("sandboxed build failed for {}", pkg.meta.name))?;
-        println!("==> {} built successfully", pkg.meta.name);
+        println!("{}", crate::color::bold_green(&format!("==> {} built successfully", pkg.meta.name)));
         built.push(dest);
     }
 
@@ -191,12 +203,12 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
 /// back to `$SUDO_UID`/`$SUDO_GID` (the user sudo remembers) for the
 /// actual sandboxed build. A direct root login has no such variables to
 /// drop to, so it's rejected rather than guessing.
-struct Privileges {
-    uid: u32,
-    gid: u32,
+pub(crate) struct Privileges {
+    pub uid: u32,
+    pub gid: u32,
 }
 
-fn require_monitoring_privileges() -> Result<Privileges> {
+pub(crate) fn require_monitoring_privileges() -> Result<Privileges> {
     if unsafe { libc::geteuid() } != 0 {
         bail!(
             "--report needs root to load the eBPF monitor. Re-run as:\n\
@@ -226,13 +238,7 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
     ensure_bwrap()?;
     let privileges = require_monitoring_privileges()?;
 
-    let obj_path = archon_monitor::loader::default_object_path().context(
-        "compiled eBPF object not found. Build it first:\n\
-         \n    cd crates/archon-monitor-ebpf && cargo +nightly build --release\n\
-         \nor set $ARCHON_EBPF_OBJECT to point at a prebuilt archon-monitor-ebpf object",
-    )?;
-    println!("\n==> loading eBPF monitor from {}", obj_path.display());
-    let mut monitor = Monitor::load_and_attach(&obj_path).context("failed to load eBPF monitor")?;
+    let mut monitor = load_monitor()?;
 
     // Under `sudo`, $HOME is root's home, not the invoking user's — using
     // it here would create a root-owned build dir that the sandbox (which
@@ -254,7 +260,7 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
             .with_context(|| format!("failed to chown {} to the target user", dest.display()))?;
         let report = run_monitored_build(&mut monitor, &store, &dest, &pkg.meta.name, &privileges)?;
 
-        println!("\n{report}");
+        ui::print_report(&report);
         if !report.is_clean() {
             println!(
                 "==> {} was NOT installed — the build was flagged above. \
@@ -291,12 +297,14 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
 }
 
 /// A dedicated cgroup for one build. Membership is inherited through
-/// `fork()` by the kernel, so moving the sandboxed process's PID in here
-/// (before it execs anything) automatically covers every descendant it
-/// spawns — the reason this replaced an earlier PID-propagation design
-/// that relied on guessing a kernel tracepoint's byte layout and turned
-/// out, on live testing, to silently never track anything past the first
-/// process.
+/// `fork()` by the kernel, so joining it (via
+/// [`archon_sandbox::SandboxRunner::join_cgroup`], from inside the
+/// sandboxed process's own `pre_exec` — see that method's doc comment for
+/// why it must happen there and not from this side) automatically covers
+/// every descendant the build spawns. This replaced an earlier
+/// PID-propagation design that relied on guessing a kernel tracepoint's
+/// byte layout and turned out, on live testing, to silently never track
+/// anything past the first process.
 struct BuildCgroup {
     path: PathBuf,
 }
@@ -313,42 +321,12 @@ impl BuildCgroup {
         Ok(Self { path })
     }
 
-    /// The ID `bpf_get_current_cgroup_id()` reports for processes moved
-    /// into this cgroup — cgroups v2 exposes it as the directory's inode.
+    /// The ID `bpf_get_current_cgroup_id()` reports for processes in this
+    /// cgroup — cgroups v2 exposes it as the directory's inode.
     fn id(&self) -> Result<u64> {
         use std::os::unix::fs::MetadataExt;
         Ok(std::fs::metadata(&self.path)?.ino())
     }
-
-    fn add(&self, pid: u32) -> Result<()> {
-        std::fs::write(self.path.join("cgroup.procs"), pid.to_string())
-            .with_context(|| format!("failed to move pid {pid} into cgroup {}", self.path.display()))
-    }
-}
-
-/// TEMPORARY diagnostic: prints everything needed to tell whether the
-/// cgroup move actually took effect and whether `/sys/fs/cgroup` is truly
-/// the unified cgroup v2 hierarchy (a hybrid v1/v2 mount is a common way
-/// for a plain `mkdir` under `/sys/fs/cgroup` to not behave like a real
-/// cgroup v2 node at all). Remove once cgroup scoping is confirmed working.
-fn debug_print_cgroup_state(cgroup: &BuildCgroup, pid: u32) {
-    let fs_type = Command::new("stat")
-        .arg("-f")
-        .arg("-c")
-        .arg("%T")
-        .arg("/sys/fs/cgroup")
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "<stat failed>".into());
-    let proc_cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
-        .unwrap_or_else(|e| format!("<read failed: {e}>"));
-    println!(
-        "    [debug] /sys/fs/cgroup fstype={fs_type} archon_cgroup_path={} archon_cgroup_id={:?} /proc/{pid}/cgroup={}",
-        cgroup.path.display(),
-        cgroup.id(),
-        proc_cgroup.trim()
-    );
 }
 
 impl Drop for BuildCgroup {
@@ -364,7 +342,7 @@ impl Drop for BuildCgroup {
 /// against the package's policy and recording it to the store as it
 /// arrives (not just at the end, so a crash mid-build still leaves a
 /// partial record instead of losing everything).
-fn run_monitored_build(
+pub(crate) fn run_monitored_build(
     monitor: &mut Monitor,
     store: &EventStore,
     dest: &Path,
@@ -377,27 +355,28 @@ fn run_monitored_build(
         .start_build(pkg_name, unix_now())
         .context("failed to record build start")?;
 
-    let runner = SandboxRunner::new(dest).run_as(privileges.uid, privileges.gid);
-    let mut total_events = 0usize;
-    let mut flagged = Vec::new();
-
     let cgroup = BuildCgroup::create(pkg_name)?;
     monitor
         .set_target_cgroup(cgroup.id()?)
         .context("failed to point the monitor at the build's cgroup")?;
+
+    // The cgroup join happens inside bwrap's own pre_exec (see
+    // SandboxRunner::join_cgroup's doc comment) — moving it from the
+    // parent after spawn() would race bwrap's internal fork for its
+    // --unshare-pid init process, which live testing showed reliably
+    // losing that race.
+    let runner = SandboxRunner::new(dest)
+        .run_as(privileges.uid, privileges.gid)
+        .join_cgroup(&cgroup.path);
+
+    let mut total_events = 0usize;
+    let mut flagged = Vec::new();
 
     for stage in [BuildStage::Fetch, BuildStage::Build] {
         println!("==> {pkg_name}: running {stage:?} stage under eBPF observation");
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
-        // Moved in immediately after spawn, before the process has done
-        // anything beyond exec setup — every subsequent syscall, and every
-        // descendant it forks, is covered from here on.
-        cgroup
-            .add(child.id())
-            .context("failed to move the build process into its cgroup")?;
-        debug_print_cgroup_state(&cgroup, child.id());
 
         let status = loop {
             if let Some(status) = child.try_wait().context("failed to poll build process")? {
@@ -407,8 +386,13 @@ fn run_monitored_build(
             monitor.flush_logs();
             std::thread::sleep(Duration::from_millis(50));
         };
-        // Final drain: events written in the process's last moments can
-        // still be sitting in the ring buffer after wait() returns.
+        // Settle before the final drain: a process can exit within
+        // milliseconds of its last syscall (observed live — `curl`
+        // failing fast under the network-isolated build stage), and while
+        // ring buffer submissions are normally visible to userspace
+        // immediately, giving the kernel a beat before the last read
+        // costs nothing here and removes any doubt.
+        std::thread::sleep(Duration::from_millis(100));
         drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
 
         if !status.success() {
@@ -440,7 +424,7 @@ fn drain_and_record(
     Ok(())
 }
 
-fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
+pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))? {
         let entry = entry?;
@@ -473,14 +457,27 @@ fn build_dir() -> Result<PathBuf> {
 /// Same layout as [`build_dir`], but rooted at an explicitly resolved home
 /// directory instead of `$HOME`/`$XDG_CACHE_HOME` — both of which reflect
 /// *root's* environment under `sudo`, not the invoking user's.
-fn build_dir_under(home: &Path) -> PathBuf {
+pub(crate) fn build_dir_under(home: &Path) -> PathBuf {
     home.join(".cache").join("archon").join("build")
 }
 
 /// Resolves a uid's home directory via `getent`, independent of any
 /// environment variable (which under `sudo` describes root, not the
 /// invoking user).
-fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
+/// Loads and attaches the eBPF monitor, printing where the object came
+/// from. Shared by the AUR (`install --report`) and local (`build
+/// --report`) monitored paths.
+pub(crate) fn load_monitor() -> Result<Monitor> {
+    let obj_path = archon_monitor::loader::default_object_path().context(
+        "compiled eBPF object not found. Build it first:\n\
+         \n    cd crates/archon-monitor-ebpf && cargo +nightly build --release\n\
+         \nor set $ARCHON_EBPF_OBJECT to point at a prebuilt archon-monitor-ebpf object",
+    )?;
+    println!("\n==> loading eBPF monitor from {}", obj_path.display());
+    Monitor::load_and_attach(&obj_path).context("failed to load eBPF monitor")
+}
+
+pub(crate) fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
     let output = Command::new("getent")
         .arg("passwd")
         .arg(uid.to_string())
@@ -504,14 +501,14 @@ fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
 /// to write into `path`, so hand ownership back. Non-recursive: `path`'s
 /// parents being root-owned is harmless (default 0755 is traversable by
 /// anyone), only `path` itself needs to be writable by the target user.
-fn ensure_owned(path: &Path, uid: u32, gid: u32) -> Result<()> {
+pub(crate) fn ensure_owned(path: &Path, uid: u32, gid: u32) -> Result<()> {
     ensure_owned_impl(path, uid, gid, false)
 }
 
 /// As [`ensure_owned`], but recursive — needed after `git clone` (still
 /// run as root even on the monitored path) leaves the whole cloned tree
 /// root-owned, which the privilege-dropped sandbox then can't write into.
-fn ensure_owned_recursive(path: &Path, uid: u32, gid: u32) -> Result<()> {
+pub(crate) fn ensure_owned_recursive(path: &Path, uid: u32, gid: u32) -> Result<()> {
     ensure_owned_impl(path, uid, gid, true)
 }
 

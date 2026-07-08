@@ -30,12 +30,20 @@ pub const DEFAULT_ALLOWED_TOOLS: &[&str] = &[
     // fs / coreutils commonly shelled out to by build scripts
     "cp", "mv", "rm", "mkdir", "ln", "touch", "cat", "echo", "printf", "test", "true", "false",
     "dirname", "basename", "readlink", "realpath", "id", "uname", "nproc", "env", "which",
+    "date", "sort", "wc", "chmod", "chown", "getopt", "cut",
     // packaging / checksums (makepkg itself and its helpers)
-    "makepkg", "fakeroot", "faked", "gpg", "sha256sum", "sha512sum", "b2sum", "md5sum",
-    "gdb-add-index", "install-info",
+    "makepkg", "bwrap", "fakeroot", "faked", "gpg", "sha256sum", "sha512sum", "b2sum", "md5sum",
+    "gdb-add-index", "install-info", "gettext", "tput",
     // fetch tools makepkg itself uses to download declared sources
     "curl", "wget", "git",
 ];
+
+/// Bare filenames archon's own sandbox setup (bwrap's unprivileged user
+/// namespace configuration) writes as a normal, universal part of Linux
+/// sandboxing — confirmed live: eBPF captures these as relative opens
+/// (no directory prefix), since bwrap opens them relative to an
+/// already-open `/proc/self` fd rather than by absolute path.
+const NAMESPACE_SETUP_FILES: &[&str] = &["uid_map", "gid_map", "setgroups"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FlagReason {
@@ -131,6 +139,11 @@ impl Policy {
         // (compilers redirect there constantly) and not part of any
         // package's output — exempt rather than flag every -o /dev/null.
         if path.starts_with("/dev/") || path.starts_with("/proc/self/") || path == "/tmp" {
+            return None;
+        }
+        // Bare (no directory prefix) opens of the sandbox's own
+        // unprivileged-userns setup files — see NAMESPACE_SETUP_FILES.
+        if NAMESPACE_SETUP_FILES.contains(&path) {
             return None;
         }
         Some(FlagReason::WriteOutsideBuildDir { path: path.to_string() })
@@ -234,6 +247,26 @@ mod tests {
     fn dev_null_write_is_exempt() {
         let ev = open_event("/dev/null", open_flags::O_WRONLY);
         assert_eq!(policy().evaluate(&ev), None);
+    }
+
+    #[test]
+    fn namespace_setup_files_are_exempt() {
+        // bwrap's own unprivileged userns setup, confirmed live: eBPF
+        // captures these as bare relative opens (no directory prefix).
+        for name in ["uid_map", "gid_map", "setgroups"] {
+            let ev = open_event(name, open_flags::O_WRONLY);
+            assert_eq!(policy().evaluate(&ev), None, "{name} should be exempt");
+        }
+    }
+
+    #[test]
+    fn bwrap_and_makepkg_internals_are_allow_listed() {
+        for tool in [
+            "bwrap", "date", "gettext", "tput", "sort", "wc", "chmod", "chown", "getopt", "cut",
+        ] {
+            let ev = exec_event(&format!("/usr/bin/{tool}"));
+            assert_eq!(policy().evaluate(&ev), None, "{tool} should be allow-listed");
+        }
     }
 
     #[test]

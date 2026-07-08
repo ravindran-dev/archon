@@ -1,0 +1,39 @@
+# A deliberately boring, well-behaved package for demonstrating that
+# archon's monitor does NOT flag ordinary build activity.
+#
+# It builds a tiny C program with the standard toolchain (gcc/make) and
+# installs it under $pkgdir — exactly the shape of a normal AUR package.
+# Every syscall it makes is on the policy allow-list or inside the build
+# directory, so `archon install --report` should report zero flagged
+# events.
+#
+# This is not a real AUR package; it's a local fixture. Build it with:
+#   archon install --report ./demo/archon-demo-benign     (once local
+#   PKGBUILD support lands) or, today, point the sandbox example at it.
+
+pkgname=archon-demo-benign
+pkgver=1.0
+pkgrel=1
+pkgdesc="Well-behaved demo package (should pass archon's build report)"
+arch=('x86_64')
+license=('MIT')
+
+prepare() {
+  cat > hello.c <<'EOF'
+#include <stdio.h>
+int main(void) {
+    puts("hello from a well-behaved AUR package");
+    return 0;
+}
+EOF
+}
+
+build() {
+  # Ordinary compiler invocation — gcc/cc is on the allow-list.
+  gcc -O2 -o archon-demo-benign hello.c
+}
+
+package() {
+  # Writes only under $pkgdir, exactly as policy expects.
+  install -Dm755 archon-demo-benign "$pkgdir/usr/bin/archon-demo-benign"
+}

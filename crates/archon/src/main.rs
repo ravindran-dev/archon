@@ -7,6 +7,7 @@
 //!   archon never touches pacman's databases itself.
 //! - `--dry-run` stops after printing the plan, guaranteed side-effect free.
 
+mod color;
 mod commands;
 mod srcinfo;
 mod ui;
@@ -45,6 +46,18 @@ enum Command {
         #[arg(required = true)]
         packages: Vec<String>,
     },
+    /// Build a local PKGBUILD directory in the sandbox (never installs it).
+    /// Use `--report` to build under eBPF monitoring — the intended way to
+    /// exercise the demo packages under `demo/`.
+    Build {
+        /// Directory containing a PKGBUILD (e.g. demo/archon-demo-evil).
+        dir: String,
+        /// Build under eBPF monitoring and print a security report.
+        /// Requires root (re-run under `sudo`); archon drops privileges
+        /// for the build itself.
+        #[arg(long)]
+        report: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -60,5 +73,8 @@ fn main() -> anyhow::Result<()> {
             report,
         } => commands::install::run(&packages, dry_run, yes, report),
         Command::Plan { packages } => commands::install::run(&packages, true, false, false),
+        Command::Build { dir, report } => {
+            commands::build::run(&commands::build::parse_dir(&dir), report)
+        }
     }
 }

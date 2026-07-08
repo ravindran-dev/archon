@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::ffi::CString;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
 
 use crate::policy::SandboxPolicy;
@@ -36,11 +39,58 @@ pub enum SandboxError {
     BuildFailed { stage: BuildStage, status: ExitStatus },
 }
 
+/// Builds the `cgroup.procs` path as a `CString` up front — `pre_exec`
+/// can't allocate, so this must happen before `spawn()`, not inside the
+/// closure.
+fn cgroup_procs_cstring(cgroup_dir: &Path) -> CString {
+    let path = cgroup_dir.join("cgroup.procs");
+    CString::new(path.as_os_str().as_bytes()).expect("cgroup path must not contain a NUL byte")
+}
+
+/// Writes the calling (post-fork, pre-exec) process's own pid into
+/// `cgroup_procs_path`. Raw syscalls only, no allocation — this runs
+/// inside a `pre_exec` closure where only async-signal-safe operations
+/// are permitted.
+fn join_cgroup_raw(cgroup_procs_path: &CString) -> std::io::Result<()> {
+    let fd = unsafe { libc::open(cgroup_procs_path.as_ptr(), libc::O_WRONLY) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let pid = unsafe { libc::getpid() };
+    let mut buf = [0u8; 12]; // i32::MAX is 10 digits; comfortably fits
+    let digits = write_decimal(&mut buf, pid);
+    let ret = unsafe { libc::write(fd, digits.as_ptr().cast(), digits.len()) };
+    let write_err = if ret < 0 { Some(std::io::Error::last_os_error()) } else { None };
+    unsafe { libc::close(fd) };
+    match write_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Formats `n` as decimal ASCII into `buf`, returning the written slice.
+/// No allocation — `itoa`-style manual digit extraction, since pre_exec
+/// forbids the heap allocation a normal `n.to_string()` would need.
+fn write_decimal(buf: &mut [u8; 12], mut n: i32) -> &[u8] {
+    if n == 0 {
+        buf[0] = b'0';
+        return &buf[..1];
+    }
+    let mut i = buf.len();
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    &buf[i..]
+}
+
 /// Drives one AUR package's build through bubblewrap.
 pub struct SandboxRunner {
     pkg_dir: PathBuf,
     extra_env: Vec<(String, String)>,
     run_as: Option<(u32, u32)>,
+    join_cgroup: Option<PathBuf>,
 }
 
 impl SandboxRunner {
@@ -49,6 +99,7 @@ impl SandboxRunner {
             pkg_dir: pkg_dir.into(),
             extra_env: Vec::new(),
             run_as: None,
+            join_cgroup: None,
         }
     }
 
@@ -64,6 +115,28 @@ impl SandboxRunner {
     /// user — `makepkg` refuses outright to run as EUID 0.
     pub fn run_as(mut self, uid: u32, gid: u32) -> Self {
         self.run_as = Some((uid, gid));
+        self
+    }
+
+    /// Moves the sandboxed process into `cgroup_dir` (a cgroup v2
+    /// directory) before `bwrap` execs, so an eBPF monitor scoped to that
+    /// cgroup sees everything from the very first instruction onward.
+    ///
+    /// This must happen inside the child's own `pre_exec`, not via a
+    /// `cgroup.procs` write from the parent after `spawn()` returns:
+    /// `bwrap --unshare-pid` forks internally to create the new PID
+    /// namespace's init process, and that fork can — and, observed on live
+    /// testing, reliably does — happen before a *separate* process (ours)
+    /// completes an unrelated `write()` syscall. Whichever process actually
+    /// does the build's work then inherits whatever cgroup was current at
+    /// that fork, which without this fix was wherever the shell that ran
+    /// `archon` happened to be (e.g. the terminal's own systemd scope) —
+    /// not the cgroup the monitor was told to watch. Joining from inside
+    /// `pre_exec`, before `bwrap` itself has run a single instruction,
+    /// makes that race impossible: every fork bwrap performs afterward
+    /// inherits the correct cgroup by construction.
+    pub fn join_cgroup(mut self, cgroup_dir: impl Into<PathBuf>) -> Self {
+        self.join_cgroup = Some(cgroup_dir.into());
         self
     }
 
@@ -92,26 +165,44 @@ impl SandboxRunner {
         let args = policy.bwrap_args(&command);
         let mut cmd = Command::new("bwrap");
         cmd.args(&args);
-        if let Some((uid, gid)) = self.run_as {
-            use std::os::unix::process::CommandExt;
-            // `Command::uid`/`gid` alone would leave root's supplementary
-            // groups attached to the child; `Command::groups` (which would
-            // clear them) is still unstable. Do the whole drop ourselves,
-            // in the only safe order: groups, then gid, then uid — dropping
-            // uid first would leave us without permission to change the
-            // others. pre_exec runs in the forked child before exec, so
-            // only async-signal-safe calls (raw syscalls, no allocation)
-            // belong here — setgroups/setgid/setuid qualify.
+        if self.join_cgroup.is_some() || self.run_as.is_some() {
+            // Precompute everything the closure needs *before* fork: a
+            // pre_exec closure runs in the forked child before exec, where
+            // only async-signal-safe calls are permitted (raw syscalls, no
+            // heap allocation) — so the CString must already exist, just
+            // captured by the closure, not built inside it.
+            let cgroup_procs_path = self
+                .join_cgroup
+                .as_ref()
+                .map(|dir| cgroup_procs_cstring(dir));
+            let run_as = self.run_as;
             unsafe {
                 cmd.pre_exec(move || {
-                    if libc::setgroups(1, &gid as *const u32) != 0 {
-                        return Err(std::io::Error::last_os_error());
+                    // Join the cgroup first, while still root if we are —
+                    // must happen before bwrap runs (see join_cgroup's
+                    // doc comment for the race this closes), and before
+                    // any privilege drop below (an unprivileged uid may
+                    // lack permission to write another cgroup's procs).
+                    if let Some(path) = &cgroup_procs_path {
+                        join_cgroup_raw(path)?;
                     }
-                    if libc::setgid(gid) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    if libc::setuid(uid) != 0 {
-                        return Err(std::io::Error::last_os_error());
+                    // `Command::uid`/`gid` alone would leave root's
+                    // supplementary groups attached to the child;
+                    // `Command::groups` (which would clear them) is still
+                    // unstable, so the whole drop is done here instead, in
+                    // the only safe order: groups, then gid, then uid —
+                    // dropping uid first would leave us without permission
+                    // to change the others.
+                    if let Some((uid, gid)) = run_as {
+                        if libc::setgroups(1, &gid as *const u32) != 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        if libc::setgid(gid) != 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        if libc::setuid(uid) != 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
                     }
                     Ok(())
                 });
@@ -141,6 +232,25 @@ impl SandboxRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_decimal_formats_correctly() {
+        let mut buf = [0u8; 12];
+        assert_eq!(write_decimal(&mut buf, 0), b"0");
+        assert_eq!(write_decimal(&mut buf, 7), b"7");
+        assert_eq!(write_decimal(&mut buf, 42), b"42");
+        assert_eq!(write_decimal(&mut buf, 123456), b"123456");
+        assert_eq!(write_decimal(&mut buf, i32::MAX), b"2147483647");
+    }
+
+    #[test]
+    fn cgroup_procs_cstring_appends_filename() {
+        let cstring = cgroup_procs_cstring(Path::new("/sys/fs/cgroup/archon/build-foo"));
+        assert_eq!(
+            cstring.to_str().unwrap(),
+            "/sys/fs/cgroup/archon/build-foo/cgroup.procs"
+        );
+    }
 
     #[test]
     fn fetch_stage_flags() {
