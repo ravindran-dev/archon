@@ -25,4 +25,4 @@ indicatif = { workspace = true }
 
 [dev-dependencies]
 tar = { workspace = true }
-tempfile = "3"
+tempfile = { workspace = true }

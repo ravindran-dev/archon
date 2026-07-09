@@ -77,6 +77,19 @@ impl SandboxPolicy {
         // the build directory, in case it happens to live under /home.
         args.extend(["--tmpfs".into(), "/home".into()]);
         args.extend(["--tmpfs".into(), "/root".into()]);
+        // Mask /run too: it isn't a home directory, but GnuPG's agent and
+        // keyboxd sockets live under /run/user/<uid>/gnupg/ regardless of
+        // $HOME, and that path was still the *host's* real, unmasked /run
+        // — so a sandboxed `gpg` silently talked to the real user's
+        // already-running agent instead of anything scoped to the build
+        // directory (confirmed live: `gpg --list-keys` inside the sandbox
+        // showed the real user's actual imported keys from unrelated past
+        // builds, not an empty keyring). Masking /run forces gpg to spin
+        // up its own agent rooted at $HOME/.gnupg like the isolation was
+        // always meant to imply. /etc/resolv.conf on this system is a
+        // real file rather than a /run symlink, so this doesn't cost DNS
+        // resolution during the networked Fetch stage.
+        args.extend(["--tmpfs".into(), "/run".into()]);
         args.extend(["--bind".into(), pkg.clone(), pkg.clone()]);
         args.extend(["--chdir".into(), pkg.clone()]);
         args.push("--clearenv".into());
@@ -207,6 +220,22 @@ mod tests {
             .position(|w| w[0] == "--tmpfs" && w[1] == "/tmp")
             .unwrap();
         assert!(tmp_pos > ro_bind_pos, "--tmpfs /tmp must come after --ro-bind / /");
+    }
+
+    /// Regression test: without masking /run, a sandboxed `gpg` reaches
+    /// the host's real, already-running gpg-agent/keyboxd via
+    /// /run/user/<uid>/gnupg/ — a socket path GnuPG resolves independently
+    /// of $HOME — silently defeating the sandbox's keyring isolation
+    /// (confirmed live: it surfaced the real user's own imported keys from
+    /// unrelated past builds instead of an empty or build-scoped keyring).
+    #[test]
+    fn run_is_masked() {
+        let policy = SandboxPolicy::new("/tmp/pkg", true);
+        let args = policy.bwrap_args(&["makepkg".into()]);
+        assert!(
+            args.windows(2).any(|w| w[0] == "--tmpfs" && w[1] == "/run"),
+            "/run must be masked so gpg/gpg-agent can't reach the host's real keyring"
+        );
     }
 
     #[test]

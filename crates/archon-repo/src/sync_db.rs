@@ -114,6 +114,24 @@ impl SyncDb {
         })
     }
 
+    /// Rebuilds a `SyncDb` from an already-parsed package list — the
+    /// provides index is cheap to recompute in memory, so a cache only
+    /// needs to store the flat package list, not the index itself.
+    pub fn from_packages(name: String, packages: Vec<PackageMeta>) -> Self {
+        let mut provides_index: HashMap<String, Vec<String>> = HashMap::new();
+        for pkg in &packages {
+            for provide in &pkg.provides {
+                provides_index.entry(provide.name.clone()).or_default().push(pkg.name.clone());
+            }
+        }
+        let packages = packages.into_iter().map(|p| (p.name.clone(), p)).collect();
+        Self { name, packages, provides_index }
+    }
+
+    pub fn packages(&self) -> impl Iterator<Item = &PackageMeta> {
+        self.packages.values()
+    }
+
     pub fn get(&self, name: &str) -> Option<&PackageMeta> {
         self.packages.get(name)
     }

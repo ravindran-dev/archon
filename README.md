@@ -15,7 +15,7 @@ build script did before you trust its output.
 ## Status
 
 All four phases (resolver, sandbox, eBPF monitor, polish) are implemented,
-covered by 108 unit/integration tests, and confirmed end-to-end on a live
+covered by 126 unit/integration tests, and confirmed end-to-end on a live
 Arch system:
 
 - **Resolving and installing** real dependency trees against real sync
@@ -139,12 +139,18 @@ sudo archon install some-aur-package --report
 # the demo packages below.
 archon build ./demo/archon-demo-benign
 sudo archon build ./demo/archon-demo-evil --report
+
+# Remove packages — delegates to `pacman -Rs` (also drops now-orphaned
+# dependencies), after checking they're actually installed and showing
+# what will go.
+archon remove some-package --dry-run
+archon remove some-package
 ```
 
-Every privileged action — `pacman -S`, `pacman -U`, loading the eBPF
-monitor — is preceded by a printed plan and an explicit `[y/N]` prompt (or
-requires `sudo` up front, which is its own confirmation). `--dry-run`
-never touches the system, period.
+Every privileged action — `pacman -S`, `pacman -Rs`, `pacman -U`, loading
+the eBPF monitor — is preceded by a printed plan and an explicit `[y/N]`
+prompt (or requires `sudo` up front, which is its own confirmation).
+`--dry-run` never touches the system, period.
 
 ## Demo walkthrough
 
@@ -202,7 +208,7 @@ matters because a real attacker's target might not be read-only.
 cargo test --workspace
 ```
 
-108 tests, no live system or root required: `vercmp` against the reference
+126 tests, no live system or root required: `vercmp` against the reference
 ordering table, dependency-constraint satisfaction, sync-db parsing
 against hand-built fixture tarballs (plain/gzip/zstd), an AUR RPC client
 tested against a local mock HTTP server, the full resolver (diamond
@@ -255,6 +261,30 @@ inside the sandbox failed with `EPERM` (which then surfaced as a
 confusing, unrelated `$BUILDDIR` error from `makepkg`). Fixed by binding
 root first and layering the virtual mounts on top; there's a regression
 test (`root_bind_precedes_virtual_mounts`) locking the correct order in.
+
+### `/run` leaked the real GnuPG agent into the sandbox (found via live testing)
+
+`$HOME` inside the sandbox is redirected to the package's own build
+directory specifically so a build script's keyring lookups stay scoped to
+that build, not the real user's `~/.gnupg`. That held for on-disk keyring
+files — but modern GnuPG doesn't read the keybox directly; it talks to a
+long-running `gpg-agent`/`keyboxd` over a Unix socket under
+`/run/user/<uid>/gnupg/`, a path GnuPG resolves independently of `$HOME`.
+Since the sandbox bound `/` read-only without masking `/run`, a sandboxed
+`gpg` call silently reached the *host's* already-running agent instead of
+spinning up its own — confirmed live: `gpg --list-keys` inside the
+sandbox returned the real user's actual imported keys from unrelated past
+AUR builds, not an empty, build-scoped keyring. This surfaced as an AUR
+package (`spotify`, which verifies its release manifest against a bundled
+`keys/pgp/<fingerprint>.asc`) failing with "unknown public key" even
+though makepkg's own signature check has nothing to do with that bundled
+file in the first place — makepkg only auto-consults `keys/pgp/` when
+building a `--source` tarball, never for verification, so the key still
+had to be imported explicitly (see `archon`'s `pgp` module) into a keyring
+the sandbox would actually use once isolated. Fixed by masking `/run` with
+tmpfs alongside `/home` and `/root`, forcing GnuPG to start its own
+agent rooted at the sandboxed `$HOME/.gnupg`; regression test:
+`run_is_masked`.
 
 ### Cgroup scoping, not PID propagation
 
@@ -328,6 +358,41 @@ was ring-buffer submission visibility or just the poll loop racing process
 teardown, the fix is the same either way: sleep 100ms before the final
 drain. Confirmed live afterward: the connection violation appeared
 correctly, every time.
+
+### Sync/local db caching
+
+Resolving took a constant ~0.2s regardless of what was being resolved —
+`plan bash` (10 packages) and `plan firefox` (284 new) cost the same.
+That's the signature of fixed overhead unrelated to the actual work:
+parsing `/var/lib/pacman/sync/*.db` (~15,000 packages, gzip/zstd
+decompression) and `/var/lib/pacman/local/*/desc` (~1,000 separate file
+opens) from scratch on *every single command*, measured at ~175ms and
+~750ms respectively — even though both only change after `pacman -Sy` or
+an actual install/remove. Surprisingly, the local db (fewer packages, no
+decompression) was the slower of the two: its cost is dominated by
+per-file syscall overhead (open/read/close × ~1,000), not parsing work,
+which the sync db's single-read-then-in-memory-decompress approach avoids
+entirely.
+
+The fix (`archon_repo::cache`): a generic disk cache keyed by a cheap
+fingerprint — file (mtime, size) for the sync dbs, just the local db
+directory's own mtime for the local db (installing, removing, or
+upgrading anything always adds/removes/renames an immediate child of
+`/var/lib/pacman/local`, which always bumps its mtime, so one `stat()`
+call is a reliable invalidation signal). A fingerprint mismatch, missing
+file, or corrupt cache is always just a cache miss, never an error —
+caching is purely a speed optimization with no correctness weight.
+
+Getting this deployed on a real system surfaced one more real bug: the
+monitored (`--report`) install path only ever chowned the `build/`
+subdirectory back to the invoking user after running as root, never its
+parent (`~/.cache/archon`) — which the *new* cache files also live
+directly under. Since cache-write failures are silently swallowed by
+design (a broken cache must never block the CLI), this meant caching
+appeared to work but silently never did on any system that had ever run
+`sudo archon install --report`: every write into the root-owned parent
+failed invisibly, forcing a full re-parse on every run. Fixed by chowning
+the whole cache root, not just `build/`.
 
 ### Privilege separation for `--report`
 

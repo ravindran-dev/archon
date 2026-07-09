@@ -118,6 +118,35 @@ pub fn empty_local_dir() -> (tempfile::TempDir, PathBuf) {
     (dir, path)
 }
 
+/// A local-install-db directory populated with the given packages —
+/// plain `<pkg>-<ver>/desc` directories (not tarballs; that's the real
+/// `/var/lib/pacman/local` layout, distinct from the sync db's tar
+/// format), for tests that need `archon remove` to see something as
+/// actually installed.
+pub fn fixture_local_dir(pkgs: &[FixturePkg]) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    for pkg in pkgs {
+        let pkg_dir = dir.path().join(format!("{}-{}", pkg.name, pkg.version));
+        std::fs::create_dir_all(&pkg_dir).expect("create fixture pkg dir");
+        std::fs::write(
+            pkg_dir.join("desc"),
+            format!("%NAME%\n{}\n\n%VERSION%\n{}\n\n%BASE%\n{}\n", pkg.name, pkg.version, pkg.name),
+        )
+        .expect("write fixture desc");
+    }
+    let path = dir.path().to_path_buf();
+    (dir, path)
+}
+
+/// A fresh, empty cache directory (via `ARCHON_CACHE_DIR`) — each test
+/// gets its own, so parallel test runs never share (or wait on) a cache
+/// file, and none of them touch the real user's `~/.cache/archon`.
+pub fn empty_cache_dir() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().to_path_buf();
+    (dir, path)
+}
+
 /// An AUR URL guaranteed to fail fast (nothing listens on TCP port 1) —
 /// for tests where the fixture sync db already satisfies every package,
 /// so the AUR is never actually queried, but we still want to prove that

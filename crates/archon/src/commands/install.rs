@@ -52,8 +52,25 @@ fn aur_url() -> String {
     std::env::var("ARCHON_AUR_URL").unwrap_or_else(|_| archon_aur::DEFAULT_AUR_URL.to_string())
 }
 
-fn local_dir() -> String {
+pub(crate) fn local_dir() -> String {
     std::env::var("ARCHON_LOCAL_DIR").unwrap_or_else(|_| LOCAL_DIR.to_string())
+}
+
+/// Where cached, already-parsed sync/local db snapshots live — see
+/// `archon_repo::cache`'s doc comment for why this matters (parsing both
+/// from scratch on every single command measured ~925ms combined on a
+/// real system). Overridable for the same reason `sync_dir`/`local_dir`
+/// are: so tests never share state with, or depend on write access to,
+/// the real user's cache directory.
+pub(crate) fn cache_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("ARCHON_CACHE_DIR") {
+        return PathBuf::from(dir);
+    }
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .map(|base| base.join("archon"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/archon-cache"))
 }
 
 /// Best-effort: used only to keep the plan display honest about what's
@@ -61,13 +78,14 @@ fn local_dir() -> String {
 /// (missing dir, permissions) just falls back to showing everything —
 /// the same as if this lookup didn't exist at all.
 fn load_local_db() -> Option<archon_repo::LocalDb> {
-    archon_repo::LocalDb::load(Path::new(&local_dir())).ok()
+    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json")).ok()
 }
 
 pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
     let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
     let sync_dir = sync_dir();
-    let official = match OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)
+    let repo_cache = cache_dir().join("sync-db.json");
+    let official = match OfficialRepos::load_cached(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER, &repo_cache)
         .with_context(|| {
             format!(
                 "failed to load official repo databases from {sync_dir} \
@@ -221,7 +239,8 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
 /// for `makepkg`'s normally very chatty output — captured in the
 /// background (see [`subprocess::OutputCapture`]) and only printed if a
 /// stage actually fails.
-pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_name: &str) -> Result<()> {
+pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_dir: &Path, pkg_name: &str) -> Result<()> {
+    crate::pgp::import_build_keys(pkg_dir);
     for stage in [BuildStage::Fetch, BuildStage::Build] {
         let label = match stage {
             BuildStage::Fetch => format!("Fetching {pkg_name}"),
@@ -258,7 +277,7 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     for pkg in pkgs {
         let dest = clone_if_needed(aur, pkg, &build_root)?;
         let runner = SandboxRunner::new(&dest).capture_output(true);
-        build_in_sandbox(&runner, &pkg.meta.name)?;
+        build_in_sandbox(&runner, &dest, &pkg.meta.name)?;
         built.push(dest);
     }
 
@@ -325,6 +344,16 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
     let build_root = build_dir_under(&user_home);
     std::fs::create_dir_all(&build_root)
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
+    // Chown the whole archon cache root, not just build/ — the resolver's
+    // on-disk cache (archon_repo::cache) lives directly under here too,
+    // and a root-owned parent silently blocks every future non-sudo run
+    // from ever writing it (cache-write failures are swallowed by design,
+    // so on a real system this went unnoticed until measured: caching
+    // appeared to do nothing at all, because it never actually happened).
+    if let Some(cache_root) = build_root.parent() {
+        ensure_owned(cache_root, privileges.uid, privileges.gid)
+            .with_context(|| format!("failed to chown {} to the target user", cache_root.display()))?;
+    }
     ensure_owned(&build_root, privileges.uid, privileges.gid)
         .with_context(|| format!("failed to chown {} to the target user", build_root.display()))?;
     let store = EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
@@ -419,6 +448,16 @@ pub(crate) fn run_monitored_build(
     pkg_name: &str,
     privileges: &Privileges,
 ) -> Result<BuildReport> {
+    // Runs as root (this function doesn't itself drop privileges — only
+    // the sandboxed bwrap process does), so any `.gnupg` it creates here
+    // must be handed to the target user below, same as the rest of `dest`.
+    crate::pgp::import_build_keys(dest);
+    let gnupg_home = dest.join(".gnupg");
+    if gnupg_home.exists() {
+        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid)
+            .with_context(|| format!("failed to chown {} to the target user", gnupg_home.display()))?;
+    }
+
     let allowed_ips = srcinfo::resolve_allowed_ips(dest);
     let policy = Policy::new(dest, allowed_ips);
     let build_id = store

@@ -9,6 +9,7 @@
 
 mod color;
 mod commands;
+mod pgp;
 mod spinner;
 mod srcinfo;
 mod ui;
@@ -47,6 +48,19 @@ enum Command {
         #[arg(required = true)]
         packages: Vec<String>,
     },
+    /// Remove installed packages (delegates to `pacman -Rs`, which also
+    /// removes any dependency no longer required by anything else).
+    Remove {
+        /// Packages to remove.
+        #[arg(required = true)]
+        packages: Vec<String>,
+        /// Print what would be removed and exit without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Build a local PKGBUILD directory in the sandbox (never installs it).
     /// Use `--report` to build under eBPF monitoring — the intended way to
     /// exercise the demo packages under `demo/`.
@@ -74,6 +88,7 @@ fn main() -> anyhow::Result<()> {
             report,
         } => commands::install::run(&packages, dry_run, yes, report),
         Command::Plan { packages } => commands::install::run(&packages, true, false, false),
+        Command::Remove { packages, dry_run, yes } => commands::remove::run(&packages, dry_run, yes),
         Command::Build { dir, report } => {
             commands::build::run(&commands::build::parse_dir(&dir), report)
         }

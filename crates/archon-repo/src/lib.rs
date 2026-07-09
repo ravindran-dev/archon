@@ -9,6 +9,7 @@
 //! Reading is read-only and needs no privileges, so this crate is safe to
 //! run on a live system.
 
+mod cache;
 mod desc;
 mod local_db;
 mod sync_db;
@@ -38,6 +39,19 @@ impl OfficialRepos {
     /// alphabetically. Stray files (mirror download temp files, `.files`
     /// databases) are ignored.
     pub fn load(sync_dir: &Path, repo_order: &[&str]) -> Result<Self, SyncDbError> {
+        let paths = Self::db_paths(sync_dir, repo_order)?;
+        let dbs = paths
+            .iter()
+            .map(|p| SyncDb::load(p))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { dbs })
+    }
+
+    /// The `*.db` files under `sync_dir`, in `repo_order` precedence —
+    /// split out from [`OfficialRepos::load`] so [`OfficialRepos::load_cached`]
+    /// can fingerprint them (mtime + size) before deciding whether it even
+    /// needs to parse anything.
+    fn db_paths(sync_dir: &Path, repo_order: &[&str]) -> Result<Vec<std::path::PathBuf>, SyncDbError> {
         let io_err = |source| SyncDbError::Io {
             path: sync_dir.display().to_string(),
             source,
@@ -63,16 +77,40 @@ impl OfficialRepos {
             (idx, stem)
         };
         paths.sort_by_key(|p| rank(p));
-
-        let dbs = paths
-            .iter()
-            .map(|p| SyncDb::load(p))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { dbs })
+        Ok(paths)
     }
 
     pub fn from_dbs(dbs: Vec<SyncDb>) -> Self {
         Self { dbs }
+    }
+
+    /// Same result as [`OfficialRepos::load`], but backed by a disk cache
+    /// at `cache_path` keyed on the sync db files' (mtime, size) — skips
+    /// the full decompress-and-parse (measured ~175ms for ~15,000
+    /// packages) entirely once warm, since those files only change after
+    /// `pacman -Sy`. Any cache problem (missing, corrupt, stale) falls
+    /// back to a normal parse and a best-effort cache rewrite; caching is
+    /// purely a speed optimization; see the `cache` module doc comment.
+    pub fn load_cached(sync_dir: &Path, repo_order: &[&str], cache_path: &Path) -> Result<Self, SyncDbError> {
+        let paths = Self::db_paths(sync_dir, repo_order)?;
+        let Ok(fingerprint) = cache::Fingerprint::of_files(&paths) else {
+            return Self::load(sync_dir, repo_order);
+        };
+
+        type Snapshot = Vec<(String, Vec<PackageMeta>)>;
+        if let Some(snapshot) = cache::try_read::<Snapshot>(cache_path, &fingerprint) {
+            let dbs = snapshot
+                .into_iter()
+                .map(|(name, pkgs)| SyncDb::from_packages(name, pkgs))
+                .collect();
+            return Ok(Self { dbs });
+        }
+
+        let dbs = paths.iter().map(|p| SyncDb::load(p)).collect::<Result<Vec<_>, _>>()?;
+        let snapshot: Snapshot =
+            dbs.iter().map(|db| (db.name.clone(), db.packages().cloned().collect())).collect();
+        cache::write(cache_path, fingerprint, &snapshot);
+        Ok(Self { dbs })
     }
 
     pub fn repo_names(&self) -> impl Iterator<Item = &str> {

@@ -17,7 +17,7 @@ use std::path::Path;
 
 use archon_types::Version;
 
-use crate::desc;
+use crate::{cache, desc};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocalDbError {
@@ -51,6 +51,27 @@ impl LocalDb {
             versions.insert(meta.name, meta.version);
         }
         Ok(Self { versions })
+    }
+
+    /// Same result as [`LocalDb::load`], but backed by a disk cache at
+    /// `cache_path`, invalidated by `local_dir`'s own mtime (installing,
+    /// removing, or upgrading anything always touches an immediate child
+    /// of this directory, which always bumps it). Measured slower than
+    /// parsing the *entire* sync database despite ~15x fewer packages —
+    /// dominated by per-file open/read/close syscall overhead across
+    /// ~1,000 separate `desc` files, which a warm cache skips entirely.
+    /// Any cache problem falls back to [`LocalDb::load`]; see the `cache`
+    /// module doc comment.
+    pub fn load_cached(local_dir: &Path, cache_path: &Path) -> Result<Self, LocalDbError> {
+        let Ok(fingerprint) = cache::Fingerprint::of_dir(local_dir) else {
+            return Self::load(local_dir);
+        };
+        if let Some(versions) = cache::try_read::<HashMap<String, Version>>(cache_path, &fingerprint) {
+            return Ok(Self { versions });
+        }
+        let this = Self::load(local_dir)?;
+        cache::write(cache_path, fingerprint, &this.versions);
+        Ok(this)
     }
 
     pub fn version_of(&self, name: &str) -> Option<&Version> {

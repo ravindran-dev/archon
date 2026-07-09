@@ -245,10 +245,10 @@ fn find_satisfier<'r>(
     resolved: &'r HashMap<String, PackageMeta>,
     dep: &Dependency,
 ) -> Option<&'r PackageMeta> {
-    if let Some(meta) = resolved.get(&dep.name) {
-        if dep.is_satisfied_by(&meta.version) {
-            return Some(meta);
-        }
+    if let Some(meta) = resolved.get(&dep.name)
+        && dep.is_satisfied_by(&meta.version)
+    {
+        return Some(meta);
     }
     resolved.values().find(|m| m.satisfies(dep))
 }
@@ -316,13 +316,11 @@ fn build_plan(
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for meta in resolved.values().filter(|m| m.is_aur()) {
         for dep in meta.depends.iter().chain(meta.make_depends.iter()) {
-            if let Some(satisfier) = find_satisfier(&resolved, dep) {
-                if satisfier.is_aur() && satisfier.name != meta.name {
-                    edges
-                        .entry(satisfier.name.clone())
-                        .or_default()
-                        .insert(meta.name.clone());
-                }
+            if let Some(satisfier) = find_satisfier(&resolved, dep)
+                && satisfier.is_aur()
+                && satisfier.name != meta.name
+            {
+                edges.entry(satisfier.name.clone()).or_default().insert(meta.name.clone());
             }
         }
     }

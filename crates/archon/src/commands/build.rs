@@ -50,7 +50,7 @@ pub fn run(dir: &Path, report: bool) -> Result<()> {
 /// landed. Runs as the current user (no privilege drop needed).
 fn run_plain(dir: &Path, pkg_name: &str) -> Result<()> {
     let runner = SandboxRunner::new(dir).capture_output(true);
-    install::build_in_sandbox(&runner, pkg_name)?;
+    install::build_in_sandbox(&runner, dir, pkg_name)?;
     report_outputs(dir, pkg_name)?;
     Ok(())
 }
@@ -71,6 +71,11 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
     let build_root = install::build_dir_under(&user_home);
     std::fs::create_dir_all(&build_root)
         .with_context(|| format!("failed to create {}", build_root.display()))?;
+    // See install.rs's build_aur_packages_monitored for why the parent
+    // (the whole archon cache root, not just build/) needs this too.
+    if let Some(cache_root) = build_root.parent() {
+        install::ensure_owned(cache_root, privileges.uid, privileges.gid)?;
+    }
     install::ensure_owned(&build_root, privileges.uid, privileges.gid)?;
     let store = EventStore::open(&build_root.join("monitor.db"))
         .context("failed to open event store")?;

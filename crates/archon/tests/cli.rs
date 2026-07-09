@@ -10,7 +10,8 @@
 mod common;
 
 use common::{
-    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_local_dir, fixture_sync_dir, run_archon,
+    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir, fixture_local_dir,
+    fixture_sync_dir, run_archon,
 };
 
 #[test]
@@ -19,7 +20,77 @@ fn help_lists_all_subcommands() {
     assert!(out.status.success());
     assert!(out.stdout.contains("install"));
     assert!(out.stdout.contains("plan"));
+    assert!(out.stdout.contains("remove"));
     assert!(out.stdout.contains("build"));
+}
+
+#[test]
+fn remove_help_lists_flags() {
+    let out = run_archon(&["remove", "--help"], &[]);
+    assert!(out.status.success());
+    assert!(out.stdout.contains("--dry-run"));
+    assert!(out.stdout.contains("--yes"));
+}
+
+#[test]
+fn remove_rejects_package_that_is_not_installed() {
+    let (_local, local_dir) = empty_local_dir();
+    let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["remove", "not-installed-xyz", "--dry-run"],
+        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+    );
+
+    assert!(!out.status.success());
+    assert!(out.stderr.contains("not installed"), "got: {}", out.stderr);
+}
+
+#[test]
+fn remove_dry_run_shows_plan_and_stops_before_pacman() {
+    let (_local, local_dir) =
+        fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["remove", "leaf", "--dry-run"],
+        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+    );
+
+    assert!(out.status.success(), "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("Remove plan"));
+    assert!(out.stdout.contains("leaf"));
+    assert!(out.stdout.contains("1.0-1"));
+    assert!(
+        !out.stdout.contains("pacman -Rs leaf"),
+        "dry-run must never reach the actual pacman invocation: {}",
+        out.stdout
+    );
+}
+
+#[test]
+fn remove_all_or_nothing_when_one_package_is_missing() {
+    let (_local, local_dir) = fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["remove", "leaf", "also-not-installed", "--dry-run"],
+        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+    );
+
+    assert!(!out.status.success());
+    assert!(out.stderr.contains("also-not-installed"));
+    assert!(
+        !out.stdout.contains("Remove plan"),
+        "must not show a partial plan when part of the request is invalid: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -37,6 +108,8 @@ fn dry_run_resolves_and_stops_before_any_mutation() {
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
     let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "leaf", "--dry-run"],
@@ -44,6 +117,7 @@ fn dry_run_resolves_and_stops_before_any_mutation() {
             ("ARCHON_SYNC_DIR", &sync_dir),
             ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
             ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
         ],
     );
 
@@ -67,6 +141,8 @@ fn dry_run_shows_transitive_dependencies() {
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
     let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "top", "--dry-run"],
@@ -74,6 +150,7 @@ fn dry_run_shows_transitive_dependencies() {
             ("ARCHON_SYNC_DIR", &sync_dir),
             ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
             ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
         ],
     );
 
@@ -89,6 +166,8 @@ fn plan_is_equivalent_to_install_dry_run() {
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
     let local_dir = local_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["plan", "leaf"],
@@ -96,6 +175,7 @@ fn plan_is_equivalent_to_install_dry_run() {
             ("ARCHON_SYNC_DIR", &sync_dir),
             ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
             ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
         ],
     );
 
@@ -109,10 +189,16 @@ fn package_not_found_anywhere_fails_with_clear_error() {
     let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "does-not-exist-anywhere", "--dry-run"],
-        &[("ARCHON_SYNC_DIR", &sync_dir), ("ARCHON_AUR_URL", &aur_url)],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", &aur_url),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
     );
 
     assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
@@ -140,10 +226,16 @@ fn missing_sync_dir_fails_with_actionable_error() {
 fn report_flag_without_root_fails_before_any_prompt() {
     let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "leaf", "--report", "--yes"],
-        &[("ARCHON_SYNC_DIR", &sync_dir), ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL)],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
     );
 
     // This test suite never runs as root, so --report must fail cleanly —
