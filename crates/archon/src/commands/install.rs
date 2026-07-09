@@ -34,9 +34,12 @@ use archon_resolver::{PlannedPackage, Resolver};
 use archon_sandbox::{BuildStage, SandboxRunner};
 use archon_types::PackageProvider;
 
-use crate::{srcinfo, ui};
+use super::subprocess::{self, OutputCapture};
+use crate::spinner::Spinner;
+use crate::{color, srcinfo, ui};
 
 const SYNC_DIR: &str = "/var/lib/pacman/sync";
+const LOCAL_DIR: &str = "/var/lib/pacman/local";
 
 /// Overridable so integration tests can point at fixture data instead of
 /// the real system — production runs always get the real path/URL since
@@ -49,31 +52,61 @@ fn aur_url() -> String {
     std::env::var("ARCHON_AUR_URL").unwrap_or_else(|_| archon_aur::DEFAULT_AUR_URL.to_string())
 }
 
-pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
-    println!("Resolving dependencies for: {}", packages.join(", "));
+fn local_dir() -> String {
+    std::env::var("ARCHON_LOCAL_DIR").unwrap_or_else(|_| LOCAL_DIR.to_string())
+}
 
+/// Best-effort: used only to keep the plan display honest about what's
+/// already on the system, never for resolution itself, so any failure
+/// (missing dir, permissions) just falls back to showing everything —
+/// the same as if this lookup didn't exist at all.
+fn load_local_db() -> Option<archon_repo::LocalDb> {
+    archon_repo::LocalDb::load(Path::new(&local_dir())).ok()
+}
+
+pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+    let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
     let sync_dir = sync_dir();
-    let official = OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)
+    let official = match OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)
         .with_context(|| {
             format!(
                 "failed to load official repo databases from {sync_dir} \
                  (run `sudo pacman -Sy` if you've never synced)"
             )
-        })?;
+        }) {
+        Ok(v) => v,
+        Err(e) => {
+            spinner.fail("resolution failed");
+            return Err(e);
+        }
+    };
     let aur = AurClient::new(aur_url())?;
+    let local_db = load_local_db();
+    let installed_names: std::collections::HashSet<String> = local_db
+        .as_ref()
+        .map(|db| db.names().map(str::to_string).collect())
+        .unwrap_or_default();
 
     let providers: Vec<&dyn PackageProvider> = vec![&official, &aur];
-    let plan = Resolver::new(providers)
+    let plan = match Resolver::new(providers)
+        .prefer_installed(&installed_names)
         .resolve(packages)
-        .context("dependency resolution failed")?;
+        .context("dependency resolution failed")
+    {
+        Ok(v) => v,
+        Err(e) => {
+            spinner.fail("resolution failed");
+            return Err(e);
+        }
+    };
 
     if plan.is_empty() {
-        println!("nothing to do — all requested packages already resolved to nothing new.");
+        spinner.success("nothing to do — already resolved");
         return Ok(());
     }
+    spinner.success(format!("resolved {} package(s)", plan.package_count()));
 
-    println!();
-    ui::print_plan(&plan);
+    ui::print_plan(&plan, local_db.as_ref());
 
     if dry_run {
         return Ok(());
@@ -89,7 +122,7 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Resul
     }
 
     if !plan.official.is_empty() {
-        install_official(&plan.official)?;
+        install_official(&plan.official, local_db.as_ref())?;
     }
 
     if !plan.aur.is_empty() {
@@ -105,10 +138,27 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Resul
 
 /// Delegates entirely to pacman: archon builds the argument list, pacman
 /// does its own confirmation, privilege escalation, and transaction. We
-/// never touch pacman's databases ourselves.
-fn install_official(pkgs: &[PlannedPackage]) -> Result<()> {
-    let names: Vec<&str> = pkgs.iter().map(|p| p.meta.name.as_str()).collect();
-    println!("\n==> sudo pacman -S --needed {}", names.join(" "));
+/// never touch pacman's databases ourselves. pacman's own output stays
+/// visible (unlike the spinners elsewhere) — it's the real system
+/// operation, and its progress bars are the user's own pacman.conf
+/// styling, `ILoveCandy` or otherwise.
+///
+/// Only passes pacman the packages that actually need it: without this
+/// filter, an already-mostly-installed tree (`okular`'s 424, say) would
+/// dump the full list on the command line and print an "up to date --
+/// skipping" line for every single one already satisfied — all correct,
+/// just not information the plan display didn't already condense away.
+fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb>) -> Result<()> {
+    let names: Vec<&str> = pkgs
+        .iter()
+        .filter(|p| !local.is_some_and(|db| db.satisfies(&p.meta.name, &p.meta.version)))
+        .map(|p| p.meta.name.as_str())
+        .collect();
+    if names.is_empty() {
+        println!("{}", color::dim("all official packages already up to date"));
+        return Ok(());
+    }
+    println!("{}", color::dim(&format!("pacman -S --needed {}", names.join(" "))));
     let status = Command::new("sudo")
         .arg("pacman")
         .arg("-S")
@@ -138,11 +188,7 @@ fn ensure_bwrap() -> Result<()> {
 fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> Result<PathBuf> {
     let dest = build_root.join(&pkg.meta.name);
     if dest.exists() {
-        println!(
-            "==> {} already cloned at {} — reusing (remove it to re-clone)",
-            pkg.meta.name,
-            dest.display()
-        );
+        println!("{} {} {}", color::yellow("↺"), pkg.meta.name, color::dim("already cloned"));
         return Ok(dest);
     }
     let url = aur.clone_url_for(&pkg.meta.name).with_context(|| {
@@ -151,18 +197,52 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
             pkg.meta.name
         )
     })?;
-    println!("==> cloning {} from {url}", pkg.meta.name);
-    let status = Command::new("git")
+    let spinner = Spinner::start(format!("Cloning {}", pkg.meta.name));
+    let child = Command::new("git")
         .arg("clone")
         .arg("--quiet")
         .arg(&url)
         .arg(&dest)
-        .status()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .context("failed to execute git (is it installed and in PATH?)")?;
+    let (status, output) = subprocess::wait_capturing(child)?;
     if !status.success() {
+        spinner.fail(format!("clone failed: {}", pkg.meta.name));
+        subprocess::print_if_nonempty(&output);
         bail!("git clone failed for {}", pkg.meta.name);
     }
+    spinner.success(format!("cloned {}", pkg.meta.name));
     Ok(dest)
+}
+
+/// Runs both sandbox stages for one package with a spinner standing in
+/// for `makepkg`'s normally very chatty output — captured in the
+/// background (see [`subprocess::OutputCapture`]) and only printed if a
+/// stage actually fails.
+pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_name: &str) -> Result<()> {
+    for stage in [BuildStage::Fetch, BuildStage::Build] {
+        let label = match stage {
+            BuildStage::Fetch => format!("Fetching {pkg_name}"),
+            BuildStage::Build => format!("Building {pkg_name}"),
+        };
+        let spinner = Spinner::start(label);
+        let mut child = runner
+            .spawn_stage(stage)
+            .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
+        let capture = OutputCapture::start(&mut child);
+        let status = child.wait().context("failed to wait on sandboxed build")?;
+        let output = capture.finish();
+        if !status.success() {
+            spinner.fail(format!("{pkg_name} failed ({stage:?})"));
+            subprocess::print_if_nonempty(&output);
+            bail!("sandboxed build failed for {pkg_name} ({stage:?} stage)");
+        }
+        spinner.success(format!("{pkg_name} ({stage:?})"));
+    }
+    println!("{} {} built", color::bold_green("✓"), pkg_name);
+    Ok(())
 }
 
 /// Phase 2 path: clone + sandboxed build, no monitoring. Stops after a
@@ -177,11 +257,8 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     let mut built = Vec::new();
     for pkg in pkgs {
         let dest = clone_if_needed(aur, pkg, &build_root)?;
-        println!("==> building {} in sandbox (fetch stage: network allowed)", pkg.meta.name);
-        SandboxRunner::new(&dest)
-            .build()
-            .with_context(|| format!("sandboxed build failed for {}", pkg.meta.name))?;
-        println!("{}", crate::color::bold_green(&format!("==> {} built successfully", pkg.meta.name)));
+        let runner = SandboxRunner::new(&dest).capture_output(true);
+        build_in_sandbox(&runner, &pkg.meta.name)?;
         built.push(dest);
     }
 
@@ -262,23 +339,16 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
 
         ui::print_report(&report);
         if !report.is_clean() {
-            println!(
-                "==> {} was NOT installed — the build was flagged above. \
-                 Inspect the report before proceeding manually.",
-                pkg.meta.name
-            );
+            println!("{} not installed — see flags above", color::red(&pkg.meta.name));
             continue;
         }
 
         let pkg_files = find_package_files(&dest, &pkg.meta.name)?;
         if pkg_files.is_empty() {
-            println!("==> {} built clean but no package file was found — skipping install.", pkg.meta.name);
+            println!("{} built clean but no package file was found", color::yellow(&pkg.meta.name));
             continue;
         }
-        if !ui::confirm(&format!(
-            "==> {} passed the build report — install now via pacman -U?",
-            pkg.meta.name
-        ))? {
+        if !ui::confirm(&format!("Install {} now via pacman -U?", pkg.meta.name))? {
             println!("skipped — package left at {}", dest.display());
             continue;
         }
@@ -367,16 +437,22 @@ pub(crate) fn run_monitored_build(
     // losing that race.
     let runner = SandboxRunner::new(dest)
         .run_as(privileges.uid, privileges.gid)
-        .join_cgroup(&cgroup.path);
+        .join_cgroup(&cgroup.path)
+        .capture_output(true);
 
     let mut total_events = 0usize;
     let mut flagged = Vec::new();
 
     for stage in [BuildStage::Fetch, BuildStage::Build] {
-        println!("==> {pkg_name}: running {stage:?} stage under eBPF observation");
+        let label = match stage {
+            BuildStage::Fetch => format!("Fetching {pkg_name}"),
+            BuildStage::Build => format!("Building {pkg_name} (watched)"),
+        };
+        let spinner = Spinner::start(label);
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
+        let capture = OutputCapture::start(&mut child);
 
         let status = loop {
             if let Some(status) = child.try_wait().context("failed to poll build process")? {
@@ -384,7 +460,7 @@ pub(crate) fn run_monitored_build(
             }
             drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
             monitor.flush_logs();
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(20));
         };
         // Settle before the final drain: a process can exit within
         // milliseconds of its last syscall (observed live — `curl`
@@ -394,10 +470,14 @@ pub(crate) fn run_monitored_build(
         // costs nothing here and removes any doubt.
         std::thread::sleep(Duration::from_millis(100));
         drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
+        let output = capture.finish();
 
         if !status.success() {
+            spinner.fail(format!("{pkg_name} failed ({stage:?})"));
+            subprocess::print_if_nonempty(&output);
             bail!("{stage:?} stage failed for {pkg_name}: makepkg exited with {status}");
         }
+        spinner.success(format!("{pkg_name} ({stage:?}) — {total_events} events so far"));
     }
 
     Ok(BuildReport { package: pkg_name.to_string(), total_events, flagged })
@@ -461,22 +541,26 @@ pub(crate) fn build_dir_under(home: &Path) -> PathBuf {
     home.join(".cache").join("archon").join("build")
 }
 
-/// Resolves a uid's home directory via `getent`, independent of any
-/// environment variable (which under `sudo` describes root, not the
-/// invoking user).
-/// Loads and attaches the eBPF monitor, printing where the object came
-/// from. Shared by the AUR (`install --report`) and local (`build
-/// --report`) monitored paths.
+/// Loads and attaches the eBPF monitor. Shared by the AUR (`install
+/// --report`) and local (`build --report`) monitored paths.
 pub(crate) fn load_monitor() -> Result<Monitor> {
     let obj_path = archon_monitor::loader::default_object_path().context(
         "compiled eBPF object not found. Build it first:\n\
          \n    cd crates/archon-monitor-ebpf && cargo +nightly build --release\n\
          \nor set $ARCHON_EBPF_OBJECT to point at a prebuilt archon-monitor-ebpf object",
     )?;
-    println!("\n==> loading eBPF monitor from {}", obj_path.display());
-    Monitor::load_and_attach(&obj_path).context("failed to load eBPF monitor")
+    let spinner = Spinner::start("Loading eBPF monitor");
+    let monitor = Monitor::load_and_attach(&obj_path).context("failed to load eBPF monitor");
+    match &monitor {
+        Ok(_) => spinner.success("eBPF monitor attached"),
+        Err(_) => spinner.fail("eBPF monitor failed to load"),
+    }
+    monitor
 }
 
+/// Resolves a uid's home directory via `getent`, independent of any
+/// environment variable (which under `sudo` describes root, not the
+/// invoking user).
 pub(crate) fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
     let output = Command::new("getent")
         .arg("passwd")

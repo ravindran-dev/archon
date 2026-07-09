@@ -108,6 +108,16 @@ pub fn run_archon(args: &[&str], envs: &[(&str, &str)]) -> Output {
     }
 }
 
+/// An empty local-install-db directory, so plan-display tests don't
+/// implicitly depend on whatever happens to be installed on the machine
+/// running them (via `ARCHON_LOCAL_DIR`) — every fixture package shows as
+/// "new", deterministically, regardless of the host system's state.
+pub fn empty_local_dir() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().to_path_buf();
+    (dir, path)
+}
+
 /// An AUR URL guaranteed to fail fast (nothing listens on TCP port 1) —
 /// for tests where the fixture sync db already satisfies every package,
 /// so the AUR is never actually queried, but we still want to prove that

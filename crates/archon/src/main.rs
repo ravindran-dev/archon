@@ -9,6 +9,7 @@
 
 mod color;
 mod commands;
+mod spinner;
 mod srcinfo;
 mod ui;
 

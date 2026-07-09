@@ -49,10 +49,8 @@ pub fn run(dir: &Path, report: bool) -> Result<()> {
 /// Unmonitored: just build in the sandbox and report where the package
 /// landed. Runs as the current user (no privilege drop needed).
 fn run_plain(dir: &Path, pkg_name: &str) -> Result<()> {
-    println!("==> building {pkg_name} in sandbox (no monitoring; pass --report to enable)");
-    SandboxRunner::new(dir)
-        .build()
-        .with_context(|| format!("sandboxed build failed for {pkg_name}"))?;
+    let runner = SandboxRunner::new(dir).capture_output(true);
+    install::build_in_sandbox(&runner, pkg_name)?;
     report_outputs(dir, pkg_name)?;
     Ok(())
 }
@@ -82,30 +80,18 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
 
     if report.is_clean() {
         report_outputs(dir, pkg_name)?;
-        println!(
-            "\nBuild was clean. (This is `build`, not `install` — the package was \
-             not installed; run `pacman -U` on the file above yourself if you want it.)"
-        );
     } else {
-        println!(
-            "\n==> build FLAGGED — see the report above. The package file, if any, was \
-             left in place but you should treat it as untrusted."
-        );
+        println!("{}", crate::color::red("not installed — this is `build`, which never installs anyway"));
     }
     Ok(())
 }
 
 fn report_outputs(dir: &Path, pkg_name: &str) -> Result<()> {
     let files = install::find_package_files(dir, pkg_name)?;
-    if files.is_empty() {
-        // The package() step may legitimately produce a differently-named
-        // artifact; don't treat this as an error, just note it.
-        println!("==> build finished (no {pkg_name}-*.pkg.tar* file found in {})", dir.display());
-    } else {
-        println!("==> produced:");
-        for f in files {
-            println!("     {}", f.display());
-        }
+    // The package() step may legitimately produce a differently-named
+    // artifact; a miss here isn't an error, just nothing to point at.
+    for f in files {
+        println!("  {} {}", crate::color::dim("→"), f.display());
     }
     Ok(())
 }

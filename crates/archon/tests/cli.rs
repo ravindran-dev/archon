@@ -9,7 +9,9 @@
 
 mod common;
 
-use common::{FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, fixture_sync_dir, run_archon};
+use common::{
+    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_local_dir, fixture_sync_dir, run_archon,
+};
 
 #[test]
 fn help_lists_all_subcommands() {
@@ -33,18 +35,24 @@ fn install_help_lists_report_flag() {
 fn dry_run_resolves_and_stops_before_any_mutation() {
     let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let (_local, local_dir) = empty_local_dir();
+    let local_dir = local_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "leaf", "--dry-run"],
-        &[("ARCHON_SYNC_DIR", &sync_dir), ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL)],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+            ("ARCHON_LOCAL_DIR", &local_dir),
+        ],
     );
 
     assert!(out.status.success(), "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Install plan"));
     assert!(out.stdout.contains("leaf"));
-    assert!(out.stdout.contains("Total:"));
+    assert!(out.stdout.contains("1 official"));
     assert!(
-        !out.stdout.contains("sudo pacman"),
+        !out.stdout.contains("pacman -S"),
         "dry-run must never reach the pacman invocation: {}",
         out.stdout
     );
@@ -57,10 +65,16 @@ fn dry_run_shows_transitive_dependencies() {
         FixturePkg { name: "top", version: "2.0-1", depends: &["leaf"] },
     ]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let (_local, local_dir) = empty_local_dir();
+    let local_dir = local_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["install", "top", "--dry-run"],
-        &[("ARCHON_SYNC_DIR", &sync_dir), ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL)],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+            ("ARCHON_LOCAL_DIR", &local_dir),
+        ],
     );
 
     assert!(out.status.success(), "stderr: {}", out.stderr);
@@ -73,10 +87,16 @@ fn dry_run_shows_transitive_dependencies() {
 fn plan_is_equivalent_to_install_dry_run() {
     let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let (_local, local_dir) = empty_local_dir();
+    let local_dir = local_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["plan", "leaf"],
-        &[("ARCHON_SYNC_DIR", &sync_dir), ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL)],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+            ("ARCHON_LOCAL_DIR", &local_dir),
+        ],
     );
 
     assert!(out.status.success(), "stderr: {}", out.stderr);
@@ -173,7 +193,7 @@ fn build_command_succeeds_on_benign_demo_package() {
 
     let out = run_archon(&["build", &dest.to_string_lossy()], &[]);
     assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
-    assert!(out.stdout.contains("produced:"));
+    assert!(out.stdout.contains(".pkg.tar"));
 
     let has_pkg_file = std::fs::read_dir(&dest)
         .unwrap()

@@ -91,6 +91,7 @@ pub struct SandboxRunner {
     extra_env: Vec<(String, String)>,
     run_as: Option<(u32, u32)>,
     join_cgroup: Option<PathBuf>,
+    capture_output: bool,
 }
 
 impl SandboxRunner {
@@ -100,7 +101,17 @@ impl SandboxRunner {
             extra_env: Vec::new(),
             run_as: None,
             join_cgroup: None,
+            capture_output: false,
         }
+    }
+
+    /// Pipes the spawned process's stdout/stderr instead of inheriting the
+    /// parent's, so a caller can show a spinner in their place and only
+    /// print the real output if the build fails. Off by default — plain
+    /// inherited stdio is what the sandbox example and manual testing want.
+    pub fn capture_output(mut self, yes: bool) -> Self {
+        self.capture_output = yes;
+        self
     }
 
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
@@ -165,6 +176,10 @@ impl SandboxRunner {
         let args = policy.bwrap_args(&command);
         let mut cmd = Command::new("bwrap");
         cmd.args(&args);
+        if self.capture_output {
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+        }
         if self.join_cgroup.is_some() || self.run_as.is_some() {
             // Precompute everything the closure needs *before* fork: a
             // pre_exec closure runs in the forked child before exec, where

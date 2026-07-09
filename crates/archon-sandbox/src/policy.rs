@@ -114,6 +114,22 @@ impl SandboxPolicy {
                 "LANG".into(),
                 std::env::var("LANG").unwrap_or_else(|_| "C.UTF-8".into()),
             ),
+            // makepkg's package() step chowns everything to 0:0 under
+            // fakeroot (every pacman package is root-owned). On a plain
+            // host that real chown() gets EPERM, which fakeroot swallows
+            // and fakes; but --unshare-user's uid_map only maps the real
+            // caller's own uid (confirmed live via `bwrap --unshare-user --
+            // id`), so uid 0 is an *unmapped* target and the same real
+            // chown() gets EINVAL instead - a kernel-level distinction
+            // fakeroot doesn't treat as swallowable, so it propagated the
+            // failure straight to `cp`/`chown` and aborted every build with
+            // enough files to touch a root-owned path (confirmed: brave-bin
+            // package() failed this way). Telling fakeroot to skip the real
+            // syscall entirely and just fake the state in its own database
+            // sidesteps the errno distinction altogether - confirmed fixed
+            // live with `FAKEROOTDONTTRYCHOWN=1` inside an identical
+            // unshare -U sandbox.
+            ("FAKEROOTDONTTRYCHOWN".into(), "1".into()),
         ]
     }
 }

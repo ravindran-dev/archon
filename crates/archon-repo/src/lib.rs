@@ -10,9 +10,11 @@
 //! run on a live system.
 
 mod desc;
+mod local_db;
 mod sync_db;
 
 pub use desc::DescParseError;
+pub use local_db::{LocalDb, LocalDbError};
 pub use sync_db::{LoadError, SyncDb, SyncDbError};
 
 use std::path::Path;
