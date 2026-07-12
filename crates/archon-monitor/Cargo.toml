@@ -4,6 +4,7 @@ description = "eBPF loader, policy engine, event store, and build report for arc
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 archon-monitor-common = { workspace = true }

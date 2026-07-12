@@ -210,6 +210,84 @@ fn package_not_found_anywhere_fails_with_clear_error() {
 }
 
 #[test]
+fn not_found_suggests_similarly_named_official_packages() {
+    // Regression case: `archon install cuttlefish` used to just fail with
+    // "not found", even though `cuttlefish-base-git` exists — no exact
+    // package is named `cuttlefish` at all, so exact lookup alone can never
+    // find it, and the user has no way to discover the real name.
+    let (_dir, sync_dir) =
+        fixture_sync_dir(&[FixturePkg { name: "cuttlefish-base-git", version: "1:r1-1", depends: &[] }]);
+    let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let aur_url = empty_aur_server();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["install", "cuttlefish", "--dry-run"],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", &aur_url),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
+    );
+
+    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+    assert!(out.stderr.contains("not found"), "got: {}", out.stderr);
+    assert!(
+        out.stderr.contains("cuttlefish-base-git"),
+        "expected a 'did you mean' suggestion naming the real package, got: {}",
+        out.stderr
+    );
+}
+
+#[test]
+fn search_finds_official_matches_by_substring() {
+    let (_dir, sync_dir) = fixture_sync_dir(&[
+        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+        FixturePkg { name: "firefox-developer-edition", version: "129.0-1", depends: &[] },
+        FixturePkg { name: "unrelated", version: "1.0-1", depends: &[] },
+    ]);
+    let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let aur_url = empty_aur_server();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["search", "firefox"],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", &aur_url),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
+    );
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("firefox"));
+    assert!(out.stdout.contains("firefox-developer-edition"));
+    assert!(!out.stdout.contains("unrelated"));
+}
+
+#[test]
+fn search_with_no_matches_still_succeeds() {
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let sync_dir = sync_dir.to_string_lossy().into_owned();
+    let aur_url = empty_aur_server();
+    let (_cache, cache_dir) = empty_cache_dir();
+    let cache_dir = cache_dir.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["search", "does-not-exist-anywhere"],
+        &[
+            ("ARCHON_SYNC_DIR", &sync_dir),
+            ("ARCHON_AUR_URL", &aur_url),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
+    );
+
+    assert!(out.status.success(), "a search with no hits is not an error: {}", out.stderr);
+}
+
+#[test]
 fn missing_sync_dir_fails_with_actionable_error() {
     let out = run_archon(
         &["install", "leaf", "--dry-run"],

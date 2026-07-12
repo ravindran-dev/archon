@@ -4,6 +4,7 @@ description = "Dependency graph construction, conflict detection, and install or
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 archon-types = { workspace = true }

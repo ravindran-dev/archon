@@ -112,6 +112,27 @@ impl AurClient {
         Ok(resp.results)
     }
 
+    /// `GET /rpc/v5/search/{term}?by=name` — substring match against
+    /// package names only (not descriptions), for `archon search` and "did
+    /// you mean" suggestions when an exact name isn't found. Results carry
+    /// partial metadata only, same caveat as
+    /// [`AurClient::search_by_provides`].
+    pub fn search_by_name(&self, term: &str) -> Result<Vec<AurPackage>, AurError> {
+        let resp: RpcResponse = self
+            .http
+            .get(format!("{}/rpc/v5/search/{term}", self.base_url))
+            .query(&[("by", "name")])
+            .send()?
+            .error_for_status()?
+            .json()?;
+        if resp.kind == "error" {
+            return Err(AurError::Rpc(
+                resp.error.unwrap_or_else(|| "unknown error".into()),
+            ));
+        }
+        Ok(resp.results)
+    }
+
     /// AUR git clone URL for a package previously seen by this client.
     /// Split packages clone by their PackageBase, not the package name.
     pub fn clone_url_for(&self, pkg_name: &str) -> Option<String> {
@@ -266,5 +287,18 @@ mod tests {
         let providers = client.find_providers("jdk").unwrap();
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].name, "jdk-openjdk-git");
+    }
+
+    #[test]
+    fn search_by_name_returns_partial_hits() {
+        let search = r#"{"type":"search","resultcount":2,"results":[
+            {"Name":"cuttlefish-base-git","Version":"1:r6181-1","PackageBase":"cuttlefish-base-git"},
+            {"Name":"cuttlefish-user-git","Version":"1:r6181-1","PackageBase":"cuttlefish-user-git"}
+        ],"version":5}"#;
+        let (url, _) = serve(vec![("/rpc/v5/search/cuttlefish", search.to_string())]);
+        let client = AurClient::new(&url).unwrap();
+        let hits = client.search_by_name("cuttlefish").unwrap();
+        let names: Vec<_> = hits.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["cuttlefish-base-git", "cuttlefish-user-git"]);
     }
 }

@@ -18,14 +18,23 @@ license = "MIT"
 repository = "https://github.com/ravindran-dev/archon"
 
 [workspace.dependencies]
-# Internal crates
-archon-types = { path = "crates/archon-types" }
-archon-repo = { path = "crates/archon-repo" }
-archon-aur = { path = "crates/archon-aur" }
-archon-resolver = { path = "crates/archon-resolver" }
-archon-sandbox = { path = "crates/archon-sandbox" }
-archon-monitor-common = { path = "crates/archon-monitor-common" }
-archon-monitor = { path = "crates/archon-monitor" }
+# Internal crates. `version` alongside `path` is required for these to be
+# publishable at all: a path-only dependency can never be published, since
+# crates.io has no notion of "this repo's local checkout" for a downstream
+# consumer to resolve against. With both present, local builds in this
+# workspace use `path` (always preferred when available), while the
+# manifest cargo actually uploads on `cargo publish` keeps only the
+# `version` requirement, resolved against the crates.io copy — which is why
+# every internal crate must be published in dependency order (types -> repo
+# -> aur -> resolver -> sandbox -> monitor-common -> monitor -> archon-cli)
+# before anything depending on it can be published itself.
+archon-types = { path = "crates/archon-types", version = "0.1.0" }
+archon-repo = { path = "crates/archon-repo", version = "0.1.0" }
+archon-aur = { path = "crates/archon-aur", version = "0.1.0" }
+archon-resolver = { path = "crates/archon-resolver", version = "0.1.0" }
+archon-sandbox = { path = "crates/archon-sandbox", version = "0.1.0" }
+archon-monitor-common = { path = "crates/archon-monitor-common", version = "0.1.0" }
+archon-monitor = { path = "crates/archon-monitor", version = "0.1.0" }
 
 # External
 thiserror = "2"

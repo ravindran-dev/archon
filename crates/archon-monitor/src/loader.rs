@@ -9,8 +9,6 @@
 //! there are no `#[cfg(test)]` cases below — correctness here is verified
 //! by actually loading and attaching against a running kernel.
 
-use std::path::{Path, PathBuf};
-
 use aya::maps::{Array as AyaArray, MapData, RingBuf as AyaRingBuf};
 use aya::programs::TracePoint;
 use aya::Ebpf;
@@ -53,13 +51,15 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    /// Loads the compiled eBPF object and attaches every tracepoint.
-    /// Requires root. Nothing is scoped to a particular build yet — call
-    /// [`Monitor::set_target_cgroup`] before starting the sandboxed
-    /// process, or every probe no-ops (cgroup ID `0` never matches a real
-    /// cgroup, which is the target's zero-value before it's set).
-    pub fn load_and_attach(obj_path: &Path) -> Result<Self, MonitorError> {
-        let mut ebpf = Ebpf::load_file(obj_path)?;
+    /// Loads the compiled eBPF object (raw bytes — see
+    /// [`EMBEDDED_EBPF_OBJECT`]/[`resolve_ebpf_bytes`]) and attaches every
+    /// tracepoint. Requires root. Nothing is scoped to a particular build
+    /// yet — call [`Monitor::set_target_cgroup`] before starting the
+    /// sandboxed process, or every probe no-ops (cgroup ID `0` never
+    /// matches a real cgroup, which is the target's zero-value before it's
+    /// set).
+    pub fn load_and_attach(object_bytes: &[u8]) -> Result<Self, MonitorError> {
+        let mut ebpf = Ebpf::load(object_bytes)?;
         // Best-effort: routes the eBPF program's debug!/info! calls to the
         // `log` crate (the CLI wires that to env_logger — set RUST_LOG=debug
         // to see them). Never fatal; monitoring works without it.
@@ -122,16 +122,26 @@ impl Monitor {
     }
 }
 
-/// Resolves the compiled eBPF object's path: the `ARCHON_EBPF_OBJECT` env
-/// var if set, otherwise the dev-tree build output relative to this crate
-/// (only present after `cargo +nightly build --release` inside
-/// `crates/archon-monitor-ebpf` — see that crate's doc comment).
-pub fn default_object_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ARCHON_EBPF_OBJECT") {
-        return Some(PathBuf::from(p));
+/// The eBPF object, embedded at compile time from `prebuilt/` — this is
+/// what makes `cargo install`/`cargo publish` produce a fully working
+/// binary with no separate nightly build step for end users. It's checked
+/// into git deliberately (unlike everything under `archon-monitor-ebpf/
+/// target/`, which is gitignored build output): `include_bytes!` resolves
+/// at *this* crate's compile time, which for a `cargo install`'d crate
+/// means "whatever was present when the crate was packaged for crates.io",
+/// not something a downstream build step can produce on demand. Rebuilding
+/// it (`cargo +nightly build --release` in `archon-monitor-ebpf`, then
+/// copying the output here) is a manual step whenever
+/// `archon-monitor-ebpf`'s source changes — see that crate's doc comment.
+pub static EMBEDDED_EBPF_OBJECT: &[u8] = include_bytes!("../prebuilt/archon-monitor-ebpf.bpf.o");
+
+/// Resolves the eBPF object bytes to load: `$ARCHON_EBPF_OBJECT` if set —
+/// handy when iterating on `archon-monitor-ebpf` itself, so a rebuild there
+/// doesn't require also copying the object into `prebuilt/` and rebuilding
+/// this crate — otherwise the embedded, always-present default.
+pub fn resolve_ebpf_bytes() -> std::io::Result<std::borrow::Cow<'static, [u8]>> {
+    if let Ok(path) = std::env::var("ARCHON_EBPF_OBJECT") {
+        return std::fs::read(path).map(std::borrow::Cow::Owned);
     }
-    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../archon-monitor-ebpf/target/bpfel-unknown-none/release/archon-monitor-ebpf",
-    );
-    dev_path.exists().then_some(dev_path)
+    Ok(std::borrow::Cow::Borrowed(EMBEDDED_EBPF_OBJECT))
 }

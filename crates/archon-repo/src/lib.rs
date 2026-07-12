@@ -120,6 +120,28 @@ impl OfficialRepos {
     pub fn package_count(&self) -> usize {
         self.dbs.iter().map(|db| db.len()).sum()
     }
+
+    /// Substring match against package names (case-insensitive) — for
+    /// `archon search` and "did you mean" suggestions when an exact name
+    /// isn't found. Exact lookup ([`PackageProvider::get`]) is unaffected;
+    /// this exists because a name like `cuttlefish` has no exact package by
+    /// that name at all (the real ones are `cuttlefish-base-git`,
+    /// `cuttlefish-user-git`, ...), so a user has no way to discover them
+    /// without something that matches on substrings. Repo precedence order
+    /// decides which repo's copy wins when a name appears in more than one.
+    pub fn search(&self, term: &str) -> Vec<&PackageMeta> {
+        let term = term.to_lowercase();
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for db in &self.dbs {
+            for pkg in db.packages() {
+                if pkg.name.to_lowercase().contains(&term) && seen.insert(pkg.name.clone()) {
+                    out.push(pkg);
+                }
+            }
+        }
+        out
+    }
 }
 
 impl PackageProvider for OfficialRepos {
@@ -196,5 +218,25 @@ mod tests {
         let providers = repos.find_providers("sh").unwrap();
         let names: Vec<_> = providers.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["bash", "zsh"]);
+    }
+
+    #[test]
+    fn search_matches_substring_case_insensitively() {
+        let core = db_from(&[("firefox", "128.0-1", ""), ("openssl", "3.3.1-1", "")], "core");
+        let repos = OfficialRepos::from_dbs(vec![core]);
+        let hits: Vec<&str> = repos.search("FIRE").iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(hits, ["firefox"]);
+        assert!(repos.search("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn search_dedups_names_shadowed_across_repos() {
+        let core = db_from(&[("foo-tool", "2.0-1", "")], "core");
+        let extra = db_from(&[("foo-tool", "1.0-1", ""), ("foo-extra", "1.0-1", "")], "extra");
+        let repos = OfficialRepos::from_dbs(vec![core, extra]);
+        let hits = repos.search("foo");
+        let foo_tool_hits = hits.iter().filter(|p| p.name == "foo-tool").count();
+        assert_eq!(foo_tool_hits, 1, "foo-tool must appear once, keeping core's precedence copy");
+        assert_eq!(hits.iter().find(|p| p.name == "foo-tool").unwrap().version.to_string(), "2.0-1");
     }
 }

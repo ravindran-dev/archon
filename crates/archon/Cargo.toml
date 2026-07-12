@@ -1,9 +1,18 @@
 [package]
-name = "archon"
-description = "AUR-aware package manager with a security-monitored build sandbox"
+# The crates.io name "archon" was already taken by an unrelated project
+# (an Optimism batch submitter) by the time this was published, hence
+# "archon-cli" here — but the installed *binary* is still plain `archon`
+# (see `[[bin]]` below): Cargo lets the package name and binary name
+# differ, and crates.io install instructions install a binary, not a
+# package namespace, so this is invisible to end users.
+name = "archon-cli"
+description = "AUR-aware package manager for Arch Linux with a security-monitored (eBPF) build sandbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords = ["arch-linux", "aur", "pacman", "package-manager", "ebpf"]
+categories = ["command-line-utilities", "os"]
 
 [[bin]]
 name = "archon"

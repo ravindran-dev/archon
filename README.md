@@ -15,7 +15,7 @@ build script did before you trust its output.
 ## Status
 
 All four phases (resolver, sandbox, eBPF monitor, polish) are implemented,
-covered by 126 unit/integration tests, and confirmed end-to-end on a live
+covered by 132 unit/integration tests, and confirmed end-to-end on a live
 Arch system:
 
 - **Resolving and installing** real dependency trees against real sync
@@ -86,17 +86,21 @@ and why each fix holds up.
 | `archon-monitor-common` | `#![no_std]`-compatible event structs shared between the eBPF programs and userspace — the ABI boundary. |
 | `archon-monitor-ebpf` | The actual eBPF programs (tracepoints on `sys_enter_execve`/`openat`/`connect`), built with [Aya](https://aya-rs.dev) for the `bpfel-unknown-none` target. Separate Cargo workspace (standard Aya convention — different target, needs nightly + `build-std`). |
 | `archon-monitor` | Userspace: loads/attaches the eBPF object (`aya`), the policy engine (allow-listed tools, srcdir/pkgdir write scoping, declared-source IP matching), a SQLite event store (`rusqlite`), and the build report. |
-| `archon` | The CLI binary: `clap` subcommands, terminal UX (colored plan/report output), and the orchestration that ties every crate above into `install`/`plan`/`build`. |
+| `archon-cli` (directory `crates/archon`, binary `archon`) | The CLI: `clap` subcommands, terminal UX (colored plan/report output), and the orchestration that ties every crate above into `install`/`plan`/`remove`/`build`/`search`. Published as `archon-cli` on crates.io since `archon` was already taken; the installed command is still `archon`. |
 
 ## Prerequisites
 
 - **Arch Linux** (or an Arch derivative) — archon assumes `pacman`,
   `/var/lib/pacman/sync`, and `makepkg` conventions.
-- **Rust stable** for everything except the eBPF crate.
-- **Rust nightly** with `rust-src`, for `archon-monitor-ebpf` only
-  (`rustup toolchain install nightly --component rust-src`).
-- **[`bpf-linker`](https://github.com/aya-rs/bpf-linker)**, for linking the
-  eBPF object (`cargo install bpf-linker`).
+- **Rust stable** — this is all `cargo install archon-cli` or
+  `cargo build --workspace` need. The compiled eBPF monitor is embedded in
+  the `archon` binary at compile time (see below), so nightly is **not**
+  required just to build or install archon.
+- **Rust nightly** with `rust-src`, plus
+  **[`bpf-linker`](https://github.com/aya-rs/bpf-linker)**
+  (`rustup toolchain install nightly --component rust-src && cargo install
+  bpf-linker`) — only needed if you're changing `archon-monitor-ebpf`
+  itself and need to regenerate the embedded object (see Building).
 - **`bubblewrap`** (`sudo pacman -S bubblewrap`) — the sandbox.
 - **cgroups v2** (unified hierarchy) — the default on any current
   systemd-based Arch install. Check with `stat -f -c %T /sys/fs/cgroup`;
@@ -105,19 +109,54 @@ and why each fix holds up.
 ## Building
 
 ```sh
-# Everything except the eBPF programs (stable toolchain):
+# Everything, including --report support (stable toolchain only):
 cargo build --workspace --release
-
-# The eBPF programs (separate workspace, nightly toolchain):
-cd crates/archon-monitor-ebpf
-cargo +nightly build --release
-cd ../..
 ```
 
-The two build outputs are independent on purpose — the main workspace
-never needs nightly or `bpf-linker` just to build the CLI and run its
-(non-eBPF) tests. `archon` finds the compiled eBPF object automatically in
-the dev tree, or via `$ARCHON_EBPF_OBJECT` if you've placed it elsewhere.
+That's it for normal development — no nightly toolchain needed. The eBPF
+object `archon-monitor` loads is `crates/archon-monitor/prebuilt/
+archon-monitor-ebpf.bpf.o`, embedded into the binary at compile time via
+`include_bytes!`. It's committed to git deliberately (unlike everything
+under `archon-monitor-ebpf/target/`, which is disposable build output) —
+this is what makes `cargo install archon-cli` produce a binary where
+`--report` works immediately, with no separate nightly build step for end
+users.
+
+If you change `archon-monitor-ebpf`'s source, regenerate the embedded copy
+before your changes take effect in `archon build`/`archon install --report`:
+
+```sh
+cd crates/archon-monitor-ebpf
+cargo +nightly build --release
+cp target/bpfel-unknown-none/release/archon-monitor-ebpf \
+   ../archon-monitor/prebuilt/archon-monitor-ebpf.bpf.o
+cd ../..
+git add crates/archon-monitor/prebuilt/archon-monitor-ebpf.bpf.o
+```
+
+(`$ARCHON_EBPF_OBJECT` still overrides the embedded object at runtime with
+a path to any other compiled object — handy for iterating on
+`archon-monitor-ebpf` without rebuilding `archon-monitor` for every change.)
+
+## Installing
+
+```sh
+cargo install archon-cli
+```
+
+The crates.io package is named `archon-cli` (`archon` itself was already
+taken by an unrelated project), but this installs a binary named `archon` —
+`cargo install` puts it in `~/.cargo/bin`, which needs to be on your
+`PATH`. If you'll ever run `sudo archon ... --report` (required to load the
+eBPF monitor), also symlink it somewhere on root's default `secure_path`,
+since `~/.cargo/bin` normally isn't on it:
+
+```sh
+sudo ln -sf "$(which archon)" /usr/local/bin/archon
+```
+
+Building from source (this repo) works the same either way — see Building
+above.
 
 ## Usage
 
@@ -145,6 +184,12 @@ sudo archon build ./demo/archon-demo-evil --report
 # what will go.
 archon remove some-package --dry-run
 archon remove some-package
+
+# Not sure of the exact package name? Substring search against official
+# repos and the AUR (e.g. `cuttlefish` has no exact package, but this finds
+# `cuttlefish-base-git`). `install`/`plan` also suggest matches automatically
+# when an exact name isn't found, so you don't need to reach for this first.
+archon search cuttlefish
 ```
 
 Every privileged action — `pacman -S`, `pacman -Rs`, `pacman -U`, loading
@@ -208,7 +253,7 @@ matters because a real attacker's target might not be read-only.
 cargo test --workspace
 ```
 
-126 tests, no live system or root required: `vercmp` against the reference
+132 tests, no live system or root required: `vercmp` against the reference
 ordering table, dependency-constraint satisfaction, sync-db parsing
 against hand-built fixture tarballs (plain/gzip/zstd), an AUR RPC client
 tested against a local mock HTTP server, the full resolver (diamond
@@ -229,6 +274,41 @@ The eBPF crate (`crates/archon-monitor-ebpf`) and the loader module in
 kernel and root to exercise — they're verified by actually running
 `archon build --report`, not by unit test, and `loader.rs` says so in its
 own doc comment.
+
+## Publishing (crates.io)
+
+Every internal crate is published separately, in dependency order — a
+crate can only be published once everything it depends on already exists
+on crates.io at the version its manifest requires (`path` dependencies
+alone can never be published; see the comment in the workspace
+`Cargo.toml`'s `[workspace.dependencies]`):
+
+```sh
+cargo login                       # once, with a crates.io API token
+
+cargo publish -p archon-types
+cargo publish -p archon-repo
+cargo publish -p archon-aur
+cargo publish -p archon-resolver
+cargo publish -p archon-sandbox
+cargo publish -p archon-monitor-common
+cargo publish -p archon-monitor    # embeds prebuilt/archon-monitor-ebpf.bpf.o
+cargo publish -p archon-cli        # crates.io name; installs the `archon` binary
+```
+
+crates.io indexes each publish before the next one's dependency
+resolution needs it, but that can lag by a minute or two — if a publish
+fails saying it can't find the previous crate at the required version,
+wait briefly and retry rather than treating it as a real failure.
+`cargo publish --dry-run -p <crate>` (add `--allow-dirty` if you haven't
+committed yet) verifies packaging and metadata locally without uploading
+anything, and is worth running against each crate before the real
+sequence above, especially after any Cargo.toml change.
+
+Every crate version is permanent once published — even yanking (`cargo
+yank`) only stops *new* dependents from resolving to it; it never deletes
+the upload. Bump `[workspace.package] version` for any change that isn't
+purely doc/metadata.
 
 ## Design notes
 

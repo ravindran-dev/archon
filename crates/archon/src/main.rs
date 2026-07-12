@@ -10,6 +10,7 @@
 mod color;
 mod commands;
 mod pgp;
+mod search;
 mod spinner;
 mod srcinfo;
 mod ui;
@@ -73,6 +74,11 @@ enum Command {
         #[arg(long)]
         report: bool,
     },
+    /// Search official repos and the AUR for packages by (partial) name —
+    /// use this when you're not sure of the exact package name.
+    Search {
+        term: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -92,5 +98,6 @@ fn main() -> anyhow::Result<()> {
         Command::Build { dir, report } => {
             commands::build::run(&commands::build::parse_dir(&dir), report)
         }
+        Command::Search { term } => commands::search::run(&term),
     }
 }

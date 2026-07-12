@@ -4,5 +4,6 @@ description = "Event structs shared between the eBPF programs and the userspace 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]

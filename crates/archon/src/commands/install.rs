@@ -30,7 +30,7 @@ use anyhow::{bail, Context, Result};
 use archon_aur::AurClient;
 use archon_monitor::{BuildReport, EventStore, FlaggedEvent, Monitor, Policy};
 use archon_repo::OfficialRepos;
-use archon_resolver::{PlannedPackage, Resolver};
+use archon_resolver::{PlannedPackage, ResolveError, Resolver};
 use archon_sandbox::{BuildStage, SandboxRunner};
 use archon_types::PackageProvider;
 
@@ -44,11 +44,11 @@ const LOCAL_DIR: &str = "/var/lib/pacman/local";
 /// Overridable so integration tests can point at fixture data instead of
 /// the real system — production runs always get the real path/URL since
 /// these env vars are never set outside the test suite.
-fn sync_dir() -> String {
+pub(crate) fn sync_dir() -> String {
     std::env::var("ARCHON_SYNC_DIR").unwrap_or_else(|_| SYNC_DIR.to_string())
 }
 
-fn aur_url() -> String {
+pub(crate) fn aur_url() -> String {
     std::env::var("ARCHON_AUR_URL").unwrap_or_else(|_| archon_aur::DEFAULT_AUR_URL.to_string())
 }
 
@@ -106,15 +106,16 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Resul
         .unwrap_or_default();
 
     let providers: Vec<&dyn PackageProvider> = vec![&official, &aur];
-    let plan = match Resolver::new(providers)
-        .prefer_installed(&installed_names)
-        .resolve(packages)
-        .context("dependency resolution failed")
-    {
+    let resolve_result = Resolver::new(providers).prefer_installed(&installed_names).resolve(packages);
+    let plan = match resolve_result {
         Ok(v) => v,
+        Err(ResolveError::NotFound { name, required_by }) => {
+            spinner.fail("resolution failed");
+            return Err(not_found_with_suggestions(&official, &aur, &name, &required_by));
+        }
         Err(e) => {
             spinner.fail("resolution failed");
-            return Err(e);
+            return Err(anyhow::Error::new(e).context("dependency resolution failed"));
         }
     };
 
@@ -152,6 +153,31 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Resul
     }
 
     Ok(())
+}
+
+/// Turns a plain "not found" into something actionable: a name like
+/// `cuttlefish` has no exact match anywhere even though `cuttlefish-base-git`
+/// very much exists on the AUR, and the bare resolver error gives no way to
+/// discover that. Best-effort — if the AUR search itself fails (offline,
+/// AUR down), suggestions from official repos still show, and the error
+/// just falls back to the plain "not found" message otherwise.
+fn not_found_with_suggestions(official: &OfficialRepos, aur: &AurClient, name: &str, required_by: &str) -> anyhow::Error {
+    let hits = crate::search::find(official, aur, name);
+    let mut msg = format!("package '{name}' not found in official repos or the AUR (required by {required_by})");
+    if !hits.is_empty() {
+        msg.push_str("\n\nDid you mean:\n");
+        for hit in hits.iter().take(8) {
+            msg.push_str(&format!("  [{}] {}", hit.source, hit.name));
+            if let Some(desc) = &hit.description {
+                msg.push_str(&format!(" — {desc}"));
+            }
+            msg.push('\n');
+        }
+        msg.push_str(&format!("\nRun `archon search {name}` to see all matches."));
+    } else {
+        msg.push_str(&format!("\n\nNo similarly-named packages found either — try `archon search {name}`."));
+    }
+    anyhow::anyhow!(msg)
 }
 
 /// Delegates entirely to pacman: archon builds the argument list, pacman
@@ -581,15 +607,15 @@ pub(crate) fn build_dir_under(home: &Path) -> PathBuf {
 }
 
 /// Loads and attaches the eBPF monitor. Shared by the AUR (`install
-/// --report`) and local (`build --report`) monitored paths.
+/// --report`) and local (`build --report`) monitored paths. The object
+/// itself is embedded in the binary at compile time (see
+/// `archon_monitor::loader::EMBEDDED_EBPF_OBJECT`) — no separate build step
+/// or `$ARCHON_EBPF_OBJECT` needed for a normal `cargo install`'d archon.
 pub(crate) fn load_monitor() -> Result<Monitor> {
-    let obj_path = archon_monitor::loader::default_object_path().context(
-        "compiled eBPF object not found. Build it first:\n\
-         \n    cd crates/archon-monitor-ebpf && cargo +nightly build --release\n\
-         \nor set $ARCHON_EBPF_OBJECT to point at a prebuilt archon-monitor-ebpf object",
-    )?;
+    let bytes = archon_monitor::loader::resolve_ebpf_bytes()
+        .context("failed to read $ARCHON_EBPF_OBJECT (unset it to use the built-in monitor)")?;
     let spinner = Spinner::start("Loading eBPF monitor");
-    let monitor = Monitor::load_and_attach(&obj_path).context("failed to load eBPF monitor");
+    let monitor = Monitor::load_and_attach(&bytes).context("failed to load eBPF monitor");
     match &monitor {
         Ok(_) => spinner.success("eBPF monitor attached"),
         Err(_) => spinner.fail("eBPF monitor failed to load"),
