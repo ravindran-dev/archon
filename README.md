@@ -1,5 +1,9 @@
 # archon
 
+[![Crates.io](https://img.shields.io/crates/v/archon-cli.svg)](https://crates.io/crates/archon-cli)
+[![Downloads](https://img.shields.io/crates/d/archon-cli.svg)](https://crates.io/crates/archon-cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A security-monitored, AUR-aware package manager for Arch Linux. archon
 resolves dependencies across the official repos and the AUR, delegates
 official installs to `pacman`, and builds AUR packages inside a bubblewrap
@@ -139,6 +143,8 @@ a path to any other compiled object — handy for iterating on
 `archon-monitor-ebpf` without rebuilding `archon-monitor` for every change.)
 
 ## Installing
+
+Published on crates.io as [`archon-cli`](https://crates.io/crates/archon-cli):
 
 ```sh
 cargo install archon-cli
