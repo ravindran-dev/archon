@@ -14,12 +14,35 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use archon_distro::Distro;
 
 use crate::commands::install;
 use crate::spinner::Spinner;
 use crate::{color, ui};
 
+/// Non-Arch path: no local package database archon knows how to read (the
+/// pre-flight "is this actually installed, at what version" check below is
+/// pacman-specific), so this delegates straight to the native tool and
+/// lets it say so if a name isn't installed — same reasoning as
+/// `install::run_foreign_distro`.
+fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
+    let Some(backend) = distro.backend() else {
+        bail!(
+            "no supported package manager detected for {distro}. archon currently supports \
+             Arch (pacman), Debian/Ubuntu (apt), Fedora/RHEL (dnf), openSUSE (zypper), Alpine (apk), NixOS (nix-env), Void (xbps), and Gentoo (emerge)."
+        );
+    };
+    let argv = backend.remove_argv(packages, yes);
+    println!("{}", color::dim(&format!("Detected {distro} — delegating to {}", backend.name())));
+    install::run_native_tool(backend.as_ref(), &argv, dry_run)
+}
+
 pub fn run(packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
+    let distro = Distro::detect();
+    if !distro.is_arch() {
+        return run_foreign_distro(&distro, packages, dry_run, yes);
+    }
+
     let spinner = Spinner::start(format!("Checking {}", packages.join(", ")));
     let local_dir = install::local_dir();
     let local_db = match archon_repo::LocalDb::load_cached(

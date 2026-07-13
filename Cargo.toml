@@ -8,6 +8,7 @@ members = [
     "crates/archon-sandbox",
     "crates/archon-monitor-common",
     "crates/archon-monitor",
+    "crates/archon-distro",
     "crates/archon",
 ]
 
@@ -35,6 +36,7 @@ archon-resolver = { path = "crates/archon-resolver", version = "0.1.0" }
 archon-sandbox = { path = "crates/archon-sandbox", version = "0.1.0" }
 archon-monitor-common = { path = "crates/archon-monitor-common", version = "0.1.0" }
 archon-monitor = { path = "crates/archon-monitor", version = "0.1.0" }
+archon-distro = { path = "crates/archon-distro", version = "0.1.0" }
 
 # External
 thiserror = "2"

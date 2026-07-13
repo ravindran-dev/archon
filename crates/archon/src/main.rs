@@ -75,9 +75,14 @@ enum Command {
         report: bool,
     },
     /// Search official repos and the AUR for packages by (partial) name —
-    /// use this when you're not sure of the exact package name.
+    /// use this when you're not sure of the exact package name. Results
+    /// are ranked by AUR popularity (a proxy for what users actually
+    /// install), exact matches first; the top 15 are shown by default.
     Search {
         term: String,
+        /// Show every match instead of the top 15.
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -98,6 +103,6 @@ fn main() -> anyhow::Result<()> {
         Command::Build { dir, report } => {
             commands::build::run(&commands::build::parse_dir(&dir), report)
         }
-        Command::Search { term } => commands::search::run(&term),
+        Command::Search { term, all } => commands::search::run(&term, all),
     }
 }

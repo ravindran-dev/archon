@@ -11,7 +11,7 @@ mod common;
 
 use common::{
     FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir, fixture_local_dir,
-    fixture_sync_dir, run_archon,
+    fixture_os_release, fixture_sync_dir, run_archon,
 };
 
 #[test]
@@ -285,6 +285,127 @@ fn search_with_no_matches_still_succeeds() {
     );
 
     assert!(out.status.success(), "a search with no hits is not an error: {}", out.stderr);
+}
+
+#[test]
+fn install_dry_run_on_debian_delegates_to_apt() {
+    let (_os, os_release) = fixture_os_release("ID=ubuntu\nID_LIKE=debian\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("Debian/Ubuntu"), "got: {}", out.stdout);
+    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
+}
+
+#[test]
+fn install_yes_on_fedora_passes_through_assume_yes_flag() {
+    let (_os, os_release) = fixture_os_release("ID=fedora\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["install", "firefox", "--dry-run", "--yes"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("dnf install -y firefox"), "got: {}", out.stdout);
+}
+
+#[test]
+fn install_on_unsupported_distro_fails_naming_what_was_detected() {
+    let (_os, os_release) = fixture_os_release("ID=slackware\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+    assert!(out.stderr.contains("slackware"), "got: {}", out.stderr);
+    assert!(out.stderr.contains("no supported package manager"), "got: {}", out.stderr);
+}
+
+#[test]
+fn remove_dry_run_on_fedora_delegates_to_dnf() {
+    let (_os, os_release) = fixture_os_release("ID=fedora\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["remove", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("Fedora/RHEL"), "got: {}", out.stdout);
+    assert!(out.stdout.contains("dnf remove firefox"), "got: {}", out.stdout);
+}
+
+#[test]
+fn install_dry_run_on_nixos_uses_user_profile_without_sudo() {
+    let (_os, os_release) = fixture_os_release("ID=nixos\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("NixOS"), "got: {}", out.stdout);
+    // Channel-attribute install, and critically NO sudo — nix-env installs
+    // into the invoking user's profile; sudo would target root's instead.
+    assert!(out.stdout.contains("nix-env -iA nixos.firefox"), "got: {}", out.stdout);
+    assert!(!out.stdout.contains("sudo nix-env"), "nix-env must not run under sudo: {}", out.stdout);
+}
+
+#[test]
+fn install_dry_run_on_opensuse_delegates_to_zypper() {
+    let (_os, os_release) = fixture_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("sudo zypper install vim"), "got: {}", out.stdout);
+}
+
+#[test]
+fn install_dry_run_on_alpine_delegates_to_apk() {
+    let (_os, os_release) = fixture_os_release("ID=alpine\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("sudo apk add vim"), "got: {}", out.stdout);
+}
+
+#[test]
+fn remove_dry_run_on_void_and_gentoo_delegate_natively() {
+    let (_os_void, void_release) = fixture_os_release("ID=void\n");
+    let void_release = void_release.to_string_lossy().into_owned();
+    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &void_release)]);
+    assert!(out.status.success(), "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("sudo xbps-remove -R vim"), "got: {}", out.stdout);
+
+    let (_os_gentoo, gentoo_release) = fixture_os_release("ID=gentoo\n");
+    let gentoo_release = gentoo_release.to_string_lossy().into_owned();
+    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &gentoo_release)]);
+    assert!(out.status.success(), "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("sudo emerge --ask --depclean vim"), "got: {}", out.stdout);
+}
+
+#[test]
+fn install_report_on_non_arch_warns_and_falls_back_to_plain_install() {
+    let (_os, os_release) = fixture_os_release("ID=debian\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    let out = run_archon(
+        &["install", "firefox", "--dry-run", "--report"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
+
+    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.contains("only Arch/AUR has today"),
+        "expected a note that --report isn't available here, got: {}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
 }
 
 #[test]

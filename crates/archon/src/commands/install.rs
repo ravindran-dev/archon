@@ -1,6 +1,13 @@
 //! `archon install` / `archon plan`.
 //!
-//! Flow:
+//! archon's own resolver, AUR client, and sandboxed/eBPF-monitored build
+//! pipeline are Arch-specific — pacman's sync db format, the AUR, and
+//! PKGBUILD/makepkg have no equivalents elsewhere. [`archon_distro::Distro
+//! ::detect`] runs first; off Arch, everything below is skipped in favor of
+//! [`run_foreign_distro`], which delegates straight to the host's native
+//! package manager (see [`archon_distro`]'s crate doc comment for why).
+//!
+//! The Arch flow:
 //! 1. Load providers: [`OfficialRepos`] from `/var/lib/pacman/sync`
 //!    (read-only), [`AurClient`] against aur.archlinux.org.
 //! 2. [`Resolver::resolve`] -> [`InstallPlan`] (or a precise error).
@@ -28,6 +35,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use archon_aur::AurClient;
+use archon_distro::Distro;
 use archon_monitor::{BuildReport, EventStore, FlaggedEvent, Monitor, Policy};
 use archon_repo::OfficialRepos;
 use archon_resolver::{PlannedPackage, ResolveError, Resolver};
@@ -81,7 +89,81 @@ fn load_local_db() -> Option<archon_repo::LocalDb> {
     archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json")).ok()
 }
 
+/// Non-Arch path. There's no archon-computed dependency graph here to show
+/// a plan for, so unlike the Arch path there's no separate archon-side
+/// `[y/N]` prompt either — the native tool's own transaction summary and
+/// confirmation *is* the confirmation, exactly as if you'd run it
+/// yourself. `--yes` still means something: it maps to the native tool's
+/// own assume-yes flag, the same way `--yes` on Arch skips archon's prompt
+/// without touching pacman's.
+fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+    if report {
+        println!(
+            "{}",
+            color::yellow(
+                "note: --report (sandboxed, eBPF-monitored builds) needs a PKGBUILD-equivalent \
+                 build recipe, which only Arch/AUR has today — installing normally instead."
+            )
+        );
+    }
+    let Some(backend) = distro.backend() else {
+        bail!(
+            "no supported package manager detected for {distro}. archon currently supports \
+             Arch (pacman + AUR), Debian/Ubuntu (apt), Fedora/RHEL (dnf), openSUSE (zypper), \
+             Alpine (apk), NixOS (nix-env), Void (xbps), and Gentoo (emerge) — if you'd like \
+             {distro} supported, a backend is just an `archon_distro::Backend` impl (see \
+             crates/archon-distro/src/backend.rs)."
+        );
+    };
+    let argv = backend.install_argv(packages, yes);
+    println!(
+        "{}",
+        color::dim(&format!(
+            "Detected {distro} — delegating to {} (its own dependency resolution and confirmation apply, not archon's)",
+            backend.name()
+        ))
+    );
+    run_native_tool(backend.as_ref(), &argv, dry_run)
+}
+
+/// Prints and (unless `dry_run`) executes a native package manager's argv,
+/// under `sudo` only when the backend says it needs root — `nix-env`
+/// notably does not: it installs into the *invoking user's* profile, and
+/// sudo would silently redirect the install into root's profile instead.
+pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[String], dry_run: bool) -> Result<()> {
+    let display = if backend.needs_root() {
+        format!("sudo {}", argv.join(" "))
+    } else {
+        argv.join(" ")
+    };
+    println!("{}", color::dim(&display));
+    if dry_run {
+        return Ok(());
+    }
+    let mut cmd = if backend.needs_root() {
+        let mut c = Command::new("sudo");
+        c.args(argv);
+        c
+    } else {
+        let mut c = Command::new(&argv[0]);
+        c.args(&argv[1..]);
+        c
+    };
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to execute {} (is it installed and in PATH?)", backend.name()))?;
+    if !status.success() {
+        bail!("{} exited with {status}", backend.name());
+    }
+    Ok(())
+}
+
 pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+    let distro = Distro::detect();
+    if !distro.is_arch() {
+        return run_foreign_distro(&distro, packages, dry_run, yes, report);
+    }
+
     let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
     let sync_dir = sync_dir();
     let repo_cache = cache_dir().join("sync-db.json");

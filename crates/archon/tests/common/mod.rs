@@ -4,11 +4,29 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 pub fn archon_bin() -> &'static str {
     env!("CARGO_BIN_EXE_archon")
+}
+
+/// A fixed `/etc/os-release`-style fixture declaring Arch — every existing
+/// CLI test exercises archon's Arch-specific pipeline (resolver, sandbox,
+/// AUR), so `run_archon` defaults every test to this unless the test
+/// itself overrides `ARCHON_OS_RELEASE`, keeping the whole suite hermetic
+/// against whatever distro actually runs it. A `OnceLock`-backed shared
+/// file rather than per-test tempfiles: the content never varies, so one
+/// file for the whole test binary is simpler and avoids creating hundreds
+/// of near-identical temp files across a full test run.
+fn arch_os_release_path() -> &'static Path {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = std::env::temp_dir().join(format!("archon-test-os-release-{}", std::process::id()));
+        std::fs::write(&path, "ID=arch\n").expect("write fixture os-release");
+        path
+    })
 }
 
 /// One package for a fixture sync database.
@@ -97,6 +115,7 @@ pub struct Output {
 pub fn run_archon(args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(archon_bin());
     cmd.args(args).stdin(std::process::Stdio::null());
+    cmd.env("ARCHON_OS_RELEASE", arch_os_release_path());
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -152,3 +171,13 @@ pub fn empty_cache_dir() -> (tempfile::TempDir, PathBuf) {
 /// so the AUR is never actually queried, but we still want to prove that
 /// if it *were* queried, the test wouldn't hang on a real network call.
 pub const UNREACHABLE_AUR_URL: &str = "http://127.0.0.1:1";
+
+/// An `/etc/os-release`-style fixture with the given raw content, for
+/// tests exercising the non-Arch delegation path — pass via
+/// `ARCHON_OS_RELEASE`, overriding `run_archon`'s own Arch-by-default.
+pub fn fixture_os_release(content: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().join("os-release");
+    std::fs::write(&path, content).expect("write fixture os-release");
+    (dir, path)
+}

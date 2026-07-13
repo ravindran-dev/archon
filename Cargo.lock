@@ -90,6 +90,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "archon-aur",
+ "archon-distro",
  "archon-monitor",
  "archon-monitor-common",
  "archon-repo",
@@ -103,6 +104,10 @@ dependencies = [
  "tar",
  "tempfile",
 ]
+
+[[package]]
+name = "archon-distro"
+version = "0.1.0"
 
 [[package]]
 name = "archon-monitor"

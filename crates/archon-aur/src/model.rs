@@ -30,6 +30,14 @@ pub struct AurPackage {
     /// Unix timestamp; surfaced in install plans so the user can spot
     /// abandoned packages.
     pub out_of_date: Option<i64>,
+    /// All-time user vote count; present on search results.
+    #[serde(default)]
+    pub num_votes: u64,
+    /// The AUR's recency-weighted vote metric — its own proxy for "what
+    /// users currently actually install", which is exactly the signal
+    /// `archon search` ranks by.
+    #[serde(default)]
+    pub popularity: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +113,8 @@ mod tests {
             conflicts: vec![],
             provides: vec![],
             out_of_date: None,
+            num_votes: 0,
+            popularity: 0.0,
         };
         let err = pkg.into_meta().unwrap_err();
         assert!(err.to_string().contains("broken"), "got: {err}");

@@ -6,12 +6,12 @@
 # differ, and crates.io install instructions install a binary, not a
 # package namespace, so this is invisible to end users.
 name = "archon-cli"
-description = "AUR-aware package manager for Arch Linux with a security-monitored (eBPF) build sandbox"
+description = "Cross-distro package manager (Arch/Debian/Fedora) with AUR support and a security-monitored (eBPF) build sandbox on Arch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords = ["arch-linux", "aur", "pacman", "package-manager", "ebpf"]
+keywords = ["linux", "package-manager", "cross-distro", "aur", "ebpf"]
 categories = ["command-line-utilities", "os"]
 
 [[bin]]
@@ -26,6 +26,7 @@ archon-resolver = { workspace = true }
 archon-sandbox = { workspace = true }
 archon-monitor = { workspace = true }
 archon-monitor-common = { workspace = true }
+archon-distro = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 libc = { workspace = true }

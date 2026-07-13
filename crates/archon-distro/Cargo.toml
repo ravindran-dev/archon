@@ -1,0 +1,9 @@
+[package]
+name = "archon-distro"
+description = "Distro detection and native package-manager (pacman/apt/dnf) backends for archon's non-Arch install paths"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
