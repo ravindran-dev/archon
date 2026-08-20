@@ -21,11 +21,20 @@ use serde::{Deserialize, Serialize};
 /// relation non-transitive (`1.0 == 1.0-1` and `1.0 == 1.0-2`, yet
 /// `1.0-1 < 1.0-2`), which would violate `Ord`'s contract. Use
 /// [`Version::vercmp`] explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum VersionBackend {
+    #[default]
+    Alpm,
+    Dpkg,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Version {
     pub epoch: u64,
     pub pkgver: String,
     pub pkgrel: Option<String>,
+    #[serde(default)]
+    pub backend: VersionBackend,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -55,20 +64,125 @@ impl Version {
             Some((v, r)) => (v.to_owned(), Some(r.to_owned())),
             None => (rest.to_owned(), None),
         };
-        Ok(Version { epoch, pkgver, pkgrel })
+        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Alpm })
+    }
+
+    pub fn parse_dpkg(s: &str) -> Result<Self, VersionParseError> {
+        if s.is_empty() {
+            return Err(VersionParseError::Empty);
+        }
+        let (epoch, rest) = match s.find(':') {
+            Some(idx) => (
+                s[..idx]
+                    .parse()
+                    .map_err(|_| VersionParseError::InvalidEpoch(s.to_owned()))?,
+                &s[idx + 1..],
+            ),
+            None => (0, s),
+        };
+        let (pkgver, pkgrel) = match rest.rfind('-') {
+            Some(idx) => (rest[..idx].to_owned(), Some(rest[idx + 1..].to_owned())),
+            None => (rest.to_owned(), None),
+        };
+        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Dpkg })
     }
 
     /// libalpm-compatible comparison (see type-level docs for the rules).
     pub fn vercmp(&self, other: &Self) -> Ordering {
+        if self.backend != other.backend {
+            panic!(
+                "CRITICAL: Cross-backend version comparison attempted! {} ({:?}) vs {} ({:?}). \
+                 This indicates a resolver graph cross-contamination between distros.",
+                self, self.backend, other, other.backend
+            );
+        }
+
         self.epoch
             .cmp(&other.epoch)
-            .then_with(|| rpmvercmp(&self.pkgver, &other.pkgver))
+            .then_with(|| {
+                if self.backend == VersionBackend::Dpkg {
+                    dpkgvercmp(&self.pkgver, &other.pkgver)
+                } else {
+                    rpmvercmp(&self.pkgver, &other.pkgver)
+                }
+            })
             .then_with(|| match (&self.pkgrel, &other.pkgrel) {
-                (Some(a), Some(b)) => rpmvercmp(a, b),
-                // Missing pkgrel matches any pkgrel, per libalpm.
+                (Some(a), Some(b)) => {
+                    if self.backend == VersionBackend::Dpkg {
+                        dpkgvercmp(a, b)
+                    } else {
+                        rpmvercmp(a, b)
+                    }
+                },
+                (Some(a), None) => if self.backend == VersionBackend::Dpkg { dpkgvercmp(a, "") } else { Ordering::Equal },
+                (None, Some(b)) => if other.backend == VersionBackend::Dpkg { dpkgvercmp("", b) } else { Ordering::Equal },
                 _ => Ordering::Equal,
             })
     }
+}
+
+
+
+fn dpkg_order(c: u8) -> i32 {
+    if c.is_ascii_alphabetic() {
+        c as i32
+    } else if c == b'~' {
+        -1
+    } else if c == 0 {
+        0
+    } else {
+        (c as i32) + 256
+    }
+}
+
+/// Port of dpkg's version comparison algorithm.
+fn dpkgvercmp(a: &str, b: &str) -> Ordering {
+    let mut a = a.as_bytes();
+    let mut b = b.as_bytes();
+    while !a.is_empty() || !b.is_empty() {
+        let mut i = 0;
+        let mut j = 0;
+        while i < a.len() && !a[i].is_ascii_digit() { i += 1; }
+        while j < b.len() && !b[j].is_ascii_digit() { j += 1; }
+
+        let a_chars = &a[..i];
+        let b_chars = &b[..j];
+
+        // Compare non-digit characters
+        let max_len = std::cmp::max(a_chars.len(), b_chars.len());
+        for k in 0..max_len {
+            let ac = if k < a_chars.len() { a_chars[k] } else { 0 };
+            let bc = if k < b_chars.len() { b_chars[k] } else { 0 };
+            let ord_a = dpkg_order(ac);
+            let ord_b = dpkg_order(bc);
+            if ord_a != ord_b {
+                return ord_a.cmp(&ord_b);
+            }
+        }
+
+        a = &a[i..];
+        b = &b[j..];
+
+        i = 0;
+        j = 0;
+        while i < a.len() && a[i].is_ascii_digit() { i += 1; }
+        while j < b.len() && b[j].is_ascii_digit() { j += 1; }
+
+        let mut a_digits = &a[..i];
+        let mut b_digits = &b[..j];
+        
+        while a_digits.first() == Some(&b'0') { a_digits = &a_digits[1..]; }
+        while b_digits.first() == Some(&b'0') { b_digits = &b_digits[1..]; }
+
+        let ord = a_digits.len().cmp(&b_digits.len()).then_with(|| a_digits.cmp(b_digits));
+        if ord != Ordering::Equal {
+            return ord;
+        }
+
+        a = &a[i..];
+        b = &b[j..];
+    }
+    Ordering::Equal
 }
 
 /// Port of libalpm's `rpmvercmp` (alpm's fork of RPM's algorithm — the tail
@@ -88,12 +202,26 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
     while i < a.len() && j < b.len() {
         // Skip separators, remembering how many we skipped on each side.
         let (sep_start_a, sep_start_b) = (i, j);
-        while i < a.len() && !a[i].is_ascii_alphanumeric() {
+        while i < a.len() && !a[i].is_ascii_alphanumeric() && a[i] != b'~' {
             i += 1;
         }
-        while j < b.len() && !b[j].is_ascii_alphanumeric() {
+        while j < b.len() && !b[j].is_ascii_alphanumeric() && b[j] != b'~' {
             j += 1;
         }
+
+        let a_tilde = i < a.len() && a[i] == b'~';
+        let b_tilde = j < b.len() && b[j] == b'~';
+        if a_tilde && !b_tilde {
+            return Ordering::Less;
+        } else if !a_tilde && b_tilde {
+            return Ordering::Greater;
+        } else if a_tilde && b_tilde {
+            // Both hit a tilde: consume it and restart the segment check.
+            i += 1;
+            j += 1;
+            continue;
+        }
+
         if i >= a.len() || j >= b.len() {
             break;
         }
@@ -153,14 +281,18 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
         // loses ("1.0rc" < "1.0"); any other leftover (digits, separators)
         // wins ("1.0.1" > "1.0", "1.0.a" > "1.0").
         (false, true) => {
-            if b[j].is_ascii_alphabetic() {
+            if b[j] == b'~' {
+                Ordering::Greater
+            } else if b[j].is_ascii_alphabetic() {
                 Ordering::Greater
             } else {
                 Ordering::Less
             }
         }
         (true, false) => {
-            if a[i].is_ascii_alphabetic() {
+            if a[i] == b'~' {
+                Ordering::Less
+            } else if a[i].is_ascii_alphabetic() {
                 Ordering::Less
             } else {
                 Ordering::Greater
@@ -299,5 +431,30 @@ mod tests {
     #[test]
     fn pkgrel_with_subrelease() {
         assert_eq!(v("1.0-1.2").vercmp(&v("1.0-1.1")), Greater);
+    }
+
+    #[test]
+    fn debian_tilde_sorts_older_than_anything() {
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0")), Less);
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0.1")), Less);
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0~rc2")), Less);
+        assert_eq!(v("1.0~rc2").vercmp(&v("1.0~rc1")), Greater);
+        assert_eq!(v("1.0~rc1~2").vercmp(&v("1.0~rc1")), Less);
+        assert_eq!(v("1~rc1").vercmp(&v("1~rc1")), Equal);
+    }
+    
+    fn dv(s: &str) -> Version {
+        Version::parse_dpkg(s).unwrap()
+    }
+
+    #[test]
+    fn dpkg_version_comparisons() {
+        assert_eq!(dv("1.0~rc1").vercmp(&dv("1.0~rc2")), Less);
+        assert_eq!(dv("1.0~~").vercmp(&dv("1.0~")), Less);
+        assert_eq!(dv("1:2.0").vercmp(&dv("2.0~rc1")), Greater);
+        assert_eq!(dv("1.0~rc1~2").vercmp(&dv("1.0~rc1")), Less);
+        assert_eq!(dv("1.0").vercmp(&dv("1.0~rc1")), Greater);
+        assert_eq!(dv("1.0-1").vercmp(&dv("1.0-2")), Less);
+        assert_eq!(dv("1.0a").vercmp(&dv("1.0")), Greater);
     }
 }

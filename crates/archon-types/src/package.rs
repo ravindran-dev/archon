@@ -12,6 +12,8 @@ pub enum PackageSource {
     /// An AUR package. Built from its PKGBUILD (sandboxed in Phase 2+),
     /// then installed with `pacman -U`.
     Aur,
+    /// A Debian/Ubuntu package via apt.
+    Apt,
 }
 
 /// Unified package metadata, whether it came from a sync database or the

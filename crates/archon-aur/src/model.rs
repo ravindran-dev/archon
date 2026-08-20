@@ -60,6 +60,8 @@ impl AurPackage {
         };
         let parse_deps = |list: &[String]| -> Result<Vec<Dependency>, AurError> {
             list.iter()
+                .map(|s| s.split(": ").next().unwrap_or(s).trim())
+                .filter(|s| !s.is_empty())
                 .map(|s| Dependency::parse(s).map_err(|e| bad(format!("dependency {s:?}: {e}"))))
                 .collect()
         };

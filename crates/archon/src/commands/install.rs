@@ -159,6 +159,16 @@ pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[Stri
 }
 
 pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+    run_with_history(packages, dry_run, yes, report, &std::collections::HashMap::new())
+}
+
+fn run_with_history(
+    packages: &[String],
+    dry_run: bool,
+    yes: bool,
+    report: bool,
+    correction_history: &std::collections::HashMap<usize, Vec<String>>,
+) -> Result<()> {
     let distro = Distro::detect();
     if !distro.is_arch() {
         return run_foreign_distro(&distro, packages, dry_run, yes, report);
@@ -193,6 +203,38 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Resul
         Ok(v) => v,
         Err(ResolveError::NotFound { name, required_by }) => {
             spinner.fail("resolution failed");
+            if required_by == archon_resolver::TARGET {
+                let mut pos = packages.len();
+                if let Some(p) = packages.iter().position(|x| *x == name) {
+                    pos = p;
+                }
+                
+                let mut current_chain = correction_history.get(&pos).cloned().unwrap_or_default();
+                if current_chain.is_empty() {
+                    current_chain.push(name.clone());
+                }
+
+                if current_chain.len() >= 3 {
+                    let chain_str = current_chain.join(" -> ");
+                    bail!(
+                        "Recursion depth exceeded for package '{}'. Attempted corrections: {} -> {}",
+                        current_chain[0], chain_str, name
+                    );
+                }
+
+                if let Some(corrected) = handle_typo_correction(&official, &aur, &name)? {
+                    current_chain.push(corrected.clone());
+                    
+                    let mut new_history = correction_history.clone();
+                    new_history.insert(pos, current_chain);
+                    
+                    let mut new_packages = packages.to_vec();
+                    if pos < new_packages.len() {
+                        new_packages[pos] = corrected;
+                    }
+                    return run_with_history(&new_packages, dry_run, yes, report, &new_history);
+                }
+            }
             return Err(not_found_with_suggestions(&official, &aur, &name, &required_by));
         }
         Err(e) => {
@@ -260,6 +302,84 @@ fn not_found_with_suggestions(official: &OfficialRepos, aur: &AurClient, name: &
         msg.push_str(&format!("\n\nNo similarly-named packages found either — try `archon search {name}`."));
     }
     anyhow::anyhow!(msg)
+}
+
+fn handle_typo_correction(official: &OfficialRepos, aur: &AurClient, typo: &str) -> Result<Option<String>> {
+    use archon_resolver::suggest::{suggest, PackageRef};
+    use std::io::IsTerminal;
+    
+    let mut candidates = Vec::new();
+    
+    // 1. Official repos
+    for (name, repo) in official.all_package_names() {
+        candidates.push(PackageRef { name, source: "pacman".to_string(), repo: Some(repo) });
+    }
+    
+    // 2. AUR (fetch by prefix if long enough)
+    let prefix = if typo.len() >= 3 { &typo[..3] } else { typo };
+    if let Ok(aur_hits) = aur.search_by_name(prefix) {
+        for hit in aur_hits {
+            candidates.push(PackageRef { name: hit.name, source: "aur".to_string(), repo: None });
+        }
+    }
+    // 3. apt
+    let apt_dir = std::env::var("ARCHON_APT_LISTS_DIR").unwrap_or_else(|_| "/var/lib/apt/lists".to_string());
+    if let Ok(apt) = archon_repo::deb_index::AptLists::load_dir(std::path::Path::new(&apt_dir)) {
+        for (name, _) in apt.all_package_names() {
+            candidates.push(PackageRef { name, source: "apt".to_string(), repo: None });
+        }
+    }
+    let suggs = suggest(typo, &candidates, 5);
+    if suggs.is_empty() {
+        return Ok(None);
+    }
+    
+    let is_tty = std::io::stdin().is_terminal() || std::env::var("ARCHON_FORCE_INTERACTIVE").is_ok();
+    if !is_tty {
+        let names = suggs.iter().map(|s| s.pkg.name.as_str()).collect::<Vec<_>>().join(", ");
+        eprintln!("package not found, did you mean: {}? re-run interactively or with the exact name", names);
+        std::process::exit(1);
+    }
+    
+    println!("\nPackage '{}' not found. Did you mean:", typo);
+    for (i, s) in suggs.iter().enumerate() {
+        let repo_str = match &s.pkg.repo {
+            Some(r) => format!("{}/{}", s.pkg.source, r),
+            None => s.pkg.source.clone(),
+        };
+        println!("  {}) {} ({})", i + 1, s.pkg.name, repo_str);
+    }
+    
+    use std::io::Write;
+    let mut attempts = 0;
+    while attempts < 3 {
+        print!("\nInstall [1]? (Enter to accept, or type a number, or 'n' to cancel): ");
+        std::io::stdout().flush().ok();
+        
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_ok() {
+            let input = input.trim();
+            if input.eq_ignore_ascii_case("n") || input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("cancel") {
+                println!("Cancelled.");
+                std::process::exit(130);
+            }
+            if input.is_empty() {
+                return Ok(Some(suggs[0].pkg.name.clone()));
+            }
+            if let Ok(idx) = input.parse::<usize>() {
+                if idx > 0 && idx <= suggs.len() {
+                    return Ok(Some(suggs[idx - 1].pkg.name.clone()));
+                }
+            }
+            println!("Invalid selection. Please enter a number between 1 and {}, or 'n' to cancel.", suggs.len());
+        } else {
+            break;
+        }
+        attempts += 1;
+    }
+    
+    println!("Too many invalid attempts. Aborting.");
+    std::process::exit(1);
 }
 
 /// Delegates entirely to pacman: archon builds the argument list, pacman

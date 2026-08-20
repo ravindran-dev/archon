@@ -116,10 +116,35 @@ pub fn run_archon(args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(archon_bin());
     cmd.args(args).stdin(std::process::Stdio::null());
     cmd.env("ARCHON_OS_RELEASE", arch_os_release_path());
+    cmd.env("ARCHON_APT_LISTS_DIR", "/tmp/archon-empty-apt-lists");
+    std::fs::create_dir_all("/tmp/archon-empty-apt-lists").ok();
     for (k, v) in envs {
         cmd.env(k, v);
     }
     let output = cmd.output().expect("failed to execute archon binary");
+    Output {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+pub fn run_archon_interactive(args: &[&str], envs: &[(&str, &str)], input: &str) -> Output {
+    let mut cmd = Command::new(archon_bin());
+    cmd.args(args).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.env("ARCHON_OS_RELEASE", arch_os_release_path());
+    cmd.env("ARCHON_FORCE_INTERACTIVE", "1");
+    cmd.env("ARCHON_APT_LISTS_DIR", "/tmp/archon-empty-apt-lists");
+    std::fs::create_dir_all("/tmp/archon-empty-apt-lists").ok();
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("failed to spawn archon");
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin.write_all(input.as_bytes()).expect("failed to write to stdin");
+    }
+    let output = child.wait_with_output().expect("failed to wait for archon");
     Output {
         status: output.status,
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),

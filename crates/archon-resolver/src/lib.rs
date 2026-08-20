@@ -13,8 +13,9 @@
 //! package). For AUR packages, `make_depends` are edges too — you can't
 //! build without them.
 
-mod graph;
-mod plan;
+pub mod graph;
+pub mod plan;
+pub mod suggest;
 
 pub use graph::ResolveError;
 pub use plan::{InstallPlan, PlannedPackage};
@@ -24,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use archon_types::{Dependency, PackageMeta, PackageProvider};
 
 /// Label used as the "requirer" of packages the user asked for directly.
-const TARGET: &str = "target";
+pub const TARGET: &str = "target";
 
 pub struct Resolver<'a> {
     /// Precedence-ordered: a name found in providers[0] is never looked up
@@ -88,10 +89,19 @@ impl<'a> Resolver<'a> {
             // surface constraint clashes against already-chosen packages.
             let mut pending: Vec<(Dependency, String)> = Vec::new();
             for (dep, requirer) in frontier.drain(..) {
-                if try_satisfy(&resolved, &mut requirers, &dep, &requirer)? {
-                    continue;
+                match try_satisfy(&resolved, &mut requirers, &dep, &requirer) {
+                    Ok(true) => continue,
+                    Ok(false) => pending.push((dep, requirer)),
+                    Err(e) => {
+                        if let Some(alt) = dep.alternatives.first() {
+                            let mut next_alt = alt.clone();
+                            next_alt.alternatives = dep.alternatives[1..].to_vec();
+                            pending.push((next_alt, requirer));
+                        } else {
+                            return Err(e);
+                        }
+                    }
                 }
-                pending.push((dep, requirer));
             }
             if pending.is_empty() {
                 break;
@@ -147,6 +157,11 @@ impl<'a> Resolver<'a> {
                             })
                             .map(|i| candidates.remove(i))
                             .unwrap_or_else(|| candidates.swap_remove(0));
+                        // Double-index: store under both the concrete name and the virtual
+                        // name we just looked up. If another pending dep in this same batch
+                        // asks for this package by its concrete name, Phase C needs to
+                        // find it there, not just under the virtual name.
+                        found.entry(pick.name.clone()).or_insert_with(|| pick.clone());
                         found.entry(name.clone()).or_insert(pick);
                         newly_found.push(name.clone());
                     }
@@ -155,17 +170,32 @@ impl<'a> Resolver<'a> {
             }
 
             // Phase C: select a package per pending dep; push its edges.
+            let mut next_frontier = Vec::new();
             for (dep, requirer) in pending {
                 // A dep earlier in this very batch may have already
                 // resolved a package that satisfies — or conflicts with —
                 // this one; recheck with the same logic as Phase A.
-                if try_satisfy(&resolved, &mut requirers, &dep, &requirer)? {
-                    continue;
+                match try_satisfy(&resolved, &mut requirers, &dep, &requirer) {
+                    Ok(true) => continue,
+                    Err(_) if !dep.alternatives.is_empty() => {
+                        let mut next_alt = dep.alternatives[0].clone();
+                        next_alt.alternatives = dep.alternatives[1..].to_vec();
+                        next_frontier.push((next_alt, requirer));
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                    Ok(false) => {}
                 }
 
                 let exact = found.get(&dep.name);
                 let selected = exact.filter(|m| m.satisfies(&dep)).cloned();
                 let Some(meta) = selected else {
+                    if let Some(alt) = dep.alternatives.first() {
+                        let mut next_alt = alt.clone();
+                        next_alt.alternatives = dep.alternatives[1..].to_vec();
+                        next_frontier.push((next_alt, requirer));
+                        continue;
+                    }
                     return Err(match exact {
                         // The name exists but no version/provide satisfies.
                         Some(meta) => ResolveError::NoSatisfyingVersion {
@@ -181,6 +211,30 @@ impl<'a> Resolver<'a> {
                     });
                 };
 
+                // Check if the selected meta conflicts with anything already resolved.
+                // If it does, and we have an alternative, fall back to it!
+                let mut conflict_found = false;
+                for existing in resolved.values() {
+                    if meta.conflicts.iter().any(|c| c.name != meta.name && existing.satisfies(c)) {
+                        conflict_found = true;
+                        break;
+                    }
+                    if existing.conflicts.iter().any(|c| c.name != existing.name && meta.satisfies(c)) {
+                        conflict_found = true;
+                        break;
+                    }
+                }
+
+                if conflict_found {
+                    if let Some(alt) = dep.alternatives.first() {
+                        let mut next_alt = alt.clone();
+                        next_alt.alternatives = dep.alternatives[1..].to_vec();
+                        next_frontier.push((next_alt, requirer));
+                        continue;
+                    }
+                    // If no alternative exists, proceed so that `check_conflicts` can emit a clean error at the end.
+                }
+
                 note_requirer(&mut requirers, &meta.name, &requirer, &dep);
                 let mut edges: Vec<&Dependency> = meta.depends.iter().collect();
                 if meta.is_aur() {
@@ -188,10 +242,11 @@ impl<'a> Resolver<'a> {
                     edges.extend(meta.make_depends.iter());
                 }
                 for edge in edges {
-                    frontier.push((edge.clone(), meta.name.clone()));
+                    next_frontier.push((edge.clone(), meta.name.clone()));
                 }
                 resolved.insert(meta.name.clone(), meta);
             }
+            frontier = next_frontier;
         }
 
         check_conflicts(&resolved)?;
@@ -451,6 +506,20 @@ mod tests {
         .unwrap();
         assert_eq!(names(&plan.official), ["a", "b", "c"]);
         assert!(plan.aur.is_empty());
+    }
+
+    #[test]
+    fn provides_resolved_package_is_also_found_by_concrete_name_in_same_batch() {
+        let plan = resolve(
+            vec![
+                pkg(false, "app", "1.0-1", &["libgl", "mesa"], &[], &[], &[]),
+                pkg(false, "mesa", "24.0-1", &[], &[], &[], &["libgl"]),
+            ],
+            vec![],
+            &["app"],
+        )
+        .unwrap();
+        assert_eq!(names(&plan.official), ["app", "mesa"]);
     }
 
     #[test]
@@ -744,6 +813,53 @@ mod tests {
             &["glibc"],
         );
         assert!(plan.is_ok(), "official cycle must be fine: {:?}", plan.err());
+    }
+
+    #[test]
+    fn alternatives_fallback_if_primary_fails() {
+        let mut p = pkg(false, "app", "1.0-1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("missing-pkg").unwrap();
+        dep.alternatives.push(Dependency::parse("available-pkg").unwrap());
+        p.depends.push(dep);
+
+        let plan = resolve(
+            vec![
+                p,
+                pkg(false, "available-pkg", "1.0-1", &[], &[], &[], &[]),
+            ],
+            vec![],
+            &["app"],
+        ).unwrap();
+        assert_eq!(names(&plan.official), ["app", "available-pkg"]);
+    }
+
+    #[test]
+    fn alternatives_fallback_under_conflict() {
+        // App depends on "postfix | exim4".
+        let mut app = pkg(false, "app", "1.0-1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("postfix").unwrap();
+        dep.alternatives.push(Dependency::parse("exim4").unwrap());
+        app.depends.push(dep);
+
+        // postfix and exim4 both exist.
+        // But the user ALSO explicitly installed "otherapp", which depends on "exim4"
+        // and conflicts with "postfix".
+        let otherapp = pkg(false, "otherapp", "1.0-1", &["exim4"], &[], &["postfix"], &[]);
+
+        let plan = resolve(
+            vec![
+                app,
+                otherapp,
+                pkg(false, "postfix", "1.0-1", &[], &[], &["exim4"], &[]),
+                pkg(false, "exim4", "1.0-1", &[], &[], &["postfix"], &[]),
+            ],
+            vec![],
+            &["app", "otherapp"],
+        )
+        .unwrap();
+        
+        assert!(names(&plan.official).contains(&"exim4"));
+        assert!(!names(&plan.official).contains(&"postfix"));
     }
 
     #[test]

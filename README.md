@@ -140,6 +140,15 @@ the design notes behind every non-obvious decision — including the bugs
 only live testing could find — are in
 **[docs/DESIGN.md](docs/DESIGN.md)**.
 
+## Known Limitations
+
+While Archon is highly capable, it is currently a prototype with several known edge cases that are not yet natively handled in its dependency resolution pipeline:
+
+- **Multi-arch Support (Debian/Ubuntu)**: Archon does not currently parse or enforce `:amd64` or `:i386` architecture qualifiers on dependencies in Debian index files.
+- **`Breaks:` and `Replaces:`**: Advanced package relationship markers native to `dpkg` are not yet modeled in the `Dependency` graph; only `Depends:`, `Conflicts:`, and `Provides:` are enforced.
+- **Advanced Epoch Edge Cases**: While `dpkgvercmp` handles standard epoch evaluations (e.g., `1:2.0` vs `2.0~rc1`), deeply nested complex epochs and non-standard alphanumeric boundaries may still require further upstream unit test verification against `dpkg` ground truth.
+- **Split-package Handling (Arch)**: `PKGBUILD`s that output multiple split packages (e.g., `pkgbase`) might have incomplete metadata mappings in the AUR RPC fetcher compared to single-package builds.
+
 ## License
 
 [MIT](LICENSE)

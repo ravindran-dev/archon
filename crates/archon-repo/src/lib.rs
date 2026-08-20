@@ -13,6 +13,7 @@ mod cache;
 mod desc;
 mod local_db;
 mod sync_db;
+pub mod deb_index;
 
 pub use desc::DescParseError;
 pub use local_db::{LocalDb, LocalDbError};
@@ -138,6 +139,16 @@ impl OfficialRepos {
                 if pkg.name.to_lowercase().contains(&term) && seen.insert(pkg.name.clone()) {
                     out.push(pkg);
                 }
+            }
+        }
+        out
+    }
+
+    pub fn all_package_names(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for db in &self.dbs {
+            for pkg in db.packages() {
+                out.push((pkg.name.clone(), db.name.clone()));
             }
         }
         out

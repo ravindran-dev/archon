@@ -13,6 +13,8 @@ use crate::version::{Version, VersionParseError};
 pub struct Dependency {
     pub name: String,
     pub constraint: Option<VersionConstraint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<Dependency>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +52,10 @@ impl Dependency {
     /// Parse a dependency spec string, splitting on the first comparison
     /// operator. Operator search order matters: `>=`/`<=` before `>`/`<`.
     pub fn parse(spec: &str) -> Result<Self, DependencyParseError> {
+        // Strip optional-dependency description suffix (": description")
+        // Some AUR packages include these in Depends[] by mistake.
+        let spec = spec.split(": ").next().unwrap_or(spec).trim();
+        
         if spec.is_empty() {
             return Err(DependencyParseError::Empty);
         }
@@ -69,12 +75,14 @@ impl Dependency {
                 return Ok(Dependency {
                     name: name.to_owned(),
                     constraint: Some(VersionConstraint { op, version }),
+                    alternatives: Vec::new(),
                 });
             }
         }
         Ok(Dependency {
             name: spec.to_owned(),
             constraint: None,
+            alternatives: Vec::new(),
         })
     }
 
@@ -138,6 +146,13 @@ mod tests {
     fn parses_unversioned() {
         let d = Dependency::parse("glibc").unwrap();
         assert_eq!(d.name, "glibc");
+        assert!(d.constraint.is_none());
+    }
+
+    #[test]
+    fn strips_colon_description_suffix() {
+        let d = Dependency::parse("python: for python bindings").unwrap();
+        assert_eq!(d.name, "python");
         assert!(d.constraint.is_none());
     }
 

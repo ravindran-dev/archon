@@ -124,6 +124,10 @@ impl SyncDb {
                 provides_index.entry(provide.name.clone()).or_default().push(pkg.name.clone());
             }
         }
+        for v in provides_index.values_mut() {
+            v.sort();
+            v.dedup();
+        }
         let packages = packages.into_iter().map(|p| (p.name.clone(), p)).collect();
         Self { name, packages, provides_index }
     }
