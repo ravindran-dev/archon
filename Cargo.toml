@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ravindran-dev/archon"
@@ -29,14 +29,14 @@ repository = "https://github.com/ravindran-dev/archon"
 # every internal crate must be published in dependency order (types -> repo
 # -> aur -> resolver -> sandbox -> monitor-common -> monitor -> archon-cli)
 # before anything depending on it can be published itself.
-archon-types = { path = "crates/archon-types", version = "0.1.0" }
-archon-repo = { path = "crates/archon-repo", version = "0.1.0" }
-archon-aur = { path = "crates/archon-aur", version = "0.1.0" }
-archon-resolver = { path = "crates/archon-resolver", version = "0.1.0" }
-archon-sandbox = { path = "crates/archon-sandbox", version = "0.1.0" }
-archon-monitor-common = { path = "crates/archon-monitor-common", version = "0.1.0" }
-archon-monitor = { path = "crates/archon-monitor", version = "0.1.0" }
-archon-distro = { path = "crates/archon-distro", version = "0.1.0" }
+archon-types = { path = "crates/archon-types", version = "0.2.0" }
+archon-repo = { path = "crates/archon-repo", version = "0.2.0" }
+archon-aur = { path = "crates/archon-aur", version = "0.2.0" }
+archon-resolver = { path = "crates/archon-resolver", version = "0.2.0" }
+archon-sandbox = { path = "crates/archon-sandbox", version = "0.2.0" }
+archon-monitor-common = { path = "crates/archon-monitor-common", version = "0.2.0" }
+archon-monitor = { path = "crates/archon-monitor", version = "0.2.0" }
+archon-distro = { path = "crates/archon-distro", version = "0.2.0" }
 
 # External
 thiserror = "2"
