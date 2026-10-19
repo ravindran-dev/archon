@@ -244,24 +244,11 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
     while i < a.len() && j < b.len() {
         // Skip separators, remembering how many we skipped on each side.
         let (sep_start_a, sep_start_b) = (i, j);
-        while i < a.len() && !a[i].is_ascii_alphanumeric() && a[i] != b'~' {
+        while i < a.len() && !a[i].is_ascii_alphanumeric() {
             i += 1;
         }
-        while j < b.len() && !b[j].is_ascii_alphanumeric() && b[j] != b'~' {
+        while j < b.len() && !b[j].is_ascii_alphanumeric() {
             j += 1;
-        }
-
-        let a_tilde = i < a.len() && a[i] == b'~';
-        let b_tilde = j < b.len() && b[j] == b'~';
-        if a_tilde && !b_tilde {
-            return Ordering::Less;
-        } else if !a_tilde && b_tilde {
-            return Ordering::Greater;
-        } else if a_tilde && b_tilde {
-            // Both hit a tilde: consume it and restart the segment check.
-            i += 1;
-            j += 1;
-            continue;
         }
 
         if i >= a.len() || j >= b.len() {
@@ -327,14 +314,14 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
         // loses ("1.0rc" < "1.0"); any other leftover (digits, separators)
         // wins ("1.0.1" > "1.0", "1.0.a" > "1.0").
         (false, true) => {
-            if b[j] == b'~' || b[j].is_ascii_alphabetic() {
+            if b[j].is_ascii_alphabetic() {
                 Ordering::Greater
             } else {
                 Ordering::Less
             }
         }
         (true, false) => {
-            if a[i] == b'~' || a[i].is_ascii_alphabetic() {
+            if a[i].is_ascii_alphabetic() {
                 Ordering::Less
             } else {
                 Ordering::Greater
@@ -444,6 +431,12 @@ mod tests {
     }
 
     #[test]
+    fn alpm_tilde_is_a_separator_not_debian_prerelease() {
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0")).unwrap(), Greater);
+        assert_eq!(v("1.0~~").vercmp(&v("1.0~")).unwrap(), Equal);
+    }
+
+    #[test]
     fn numeric_compares_by_value_not_lexically() {
         assert_eq!(v("10.0").vercmp(&v("2.0")).unwrap(), Greater);
         assert_eq!(v("1.010").vercmp(&v("1.9")).unwrap(), Greater);
@@ -493,6 +486,9 @@ mod tests {
 
     #[test]
     fn debian_tilde_sorts_older_than_anything() {
+        // This test specifies Debian behavior; its versions must use Dpkg.
+        let v = |text: &str| Version::parse_dpkg(text).unwrap();
+        assert_eq!(v("1").backend, VersionBackend::Dpkg);
         assert_eq!(v("1.0~rc1").vercmp(&v("1.0")).unwrap(), Less);
         assert_eq!(v("1.0~rc1").vercmp(&v("1.0.1")).unwrap(), Less);
         assert_eq!(v("1.0~rc1").vercmp(&v("1.0~rc2")).unwrap(), Less);

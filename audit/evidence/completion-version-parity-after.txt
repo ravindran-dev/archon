@@ -1,0 +1,2 @@
+PASS: alpm: 900 comparisons, 0 mismatches
+UNVERIFIED: dpkg: native comparator not installed

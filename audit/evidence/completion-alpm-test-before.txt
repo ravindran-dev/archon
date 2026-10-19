@@ -1,0 +1,29 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.KigftN/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.KigftN/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.62s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_types-810f58dc673882ba)
+
+running 1 test
+
+thread 'version::tests::alpm_tilde_is_a_separator_not_debian_prerelease' (1305) panicked at crates/archon-types/src/version.rs:448:9:
+assertion `left == right` failed
+  left: Less
+ right: Greater
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test version::tests::alpm_tilde_is_a_separator_not_debian_prerelease ... FAILED
+
+failures:
+
+failures:
+    version::tests::alpm_tilde_is_a_separator_not_debian_prerelease
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-types --lib`
