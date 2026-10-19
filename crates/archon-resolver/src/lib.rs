@@ -369,13 +369,24 @@ fn build_plan(
         .map(|m| m.name.clone())
         .collect();
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for meta in resolved.values().filter(|m| m.is_aur()) {
-        for dep in meta.depends.iter().chain(meta.make_depends.iter()) {
-            if let Some(satisfier) = find_satisfier(&resolved, dep)
-                && satisfier.is_aur()
-                && satisfier.name != meta.name
-            {
-                edges.entry(satisfier.name.clone()).or_default().insert(meta.name.clone());
+    // Use the concrete choices recorded during resolution. Looking up the
+    // original dependency again loses alternative choices and may pick a
+    // different virtual provider from the unordered resolved map.
+    for (dependency, users) in requirers {
+        if !aur_nodes.contains(dependency) {
+            continue;
+        }
+        for (dependent, spec) in users {
+            // TARGET is also a legal package name. A target request must
+            // not become an edge to a package literally named "target".
+            let Some(meta) = resolved.get(dependent).filter(|m| m.is_aur()) else {
+                continue;
+            };
+            let declared = meta.depends.iter().chain(meta.make_depends.iter()).any(|dep| {
+                dep.to_string() == *spec || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
+            });
+            if declared && dependent != dependency {
+                edges.entry(dependency.clone()).or_default().insert(dependent.clone());
             }
         }
     }
@@ -490,6 +501,33 @@ mod tests {
 
     fn names(list: &[PlannedPackage]) -> Vec<&str> {
         list.iter().map(|p| p.meta.name.as_str()).collect()
+    }
+
+    #[test]
+    fn aur_alternative_is_built_before_its_dependent() {
+        let mut scanner = pkg(true, "a-scanner", "1", &[], &[], &[], &[]);
+        let mut dependency = Dependency::parse("missing-library").unwrap();
+        dependency.alternatives.push(Dependency::parse("z-library").unwrap());
+        scanner.depends.push(dependency);
+        let plan = resolve(
+            vec![],
+            vec![scanner, pkg(true, "z-library", "1", &[], &[], &[], &[])],
+            &["a-scanner"],
+        ).unwrap();
+        assert_eq!(names(&plan.aur), ["z-library", "a-scanner"]);
+    }
+
+    #[test]
+    fn aur_package_named_target_does_not_create_spurious_edges() {
+        let plan = resolve(
+            vec![],
+            vec![
+                pkg(true, "target", "1", &[], &[], &[], &[]),
+                pkg(true, "scanner", "1", &["target"], &[], &[], &[]),
+            ],
+            &["target", "scanner"],
+        ).unwrap();
+        assert_eq!(names(&plan.aur), ["target", "scanner"]);
     }
 
     #[test]

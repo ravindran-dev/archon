@@ -1,0 +1,33 @@
+     Locking 10 packages to highest compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling serde_core v1.0.229
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling strsim v0.11.1
+   Compiling syn v3.0.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.0yKTVJ/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.0yKTVJ/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.88s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 1 test
+
+thread 'tests::aur_alternative_is_built_before_its_dependent' (653) panicked at crates/archon-resolver/src/lib.rs:506:9:
+assertion `left == right` failed
+  left: ["a-scanner", "z-library"]
+ right: ["z-library", "a-scanner"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tests::aur_alternative_is_built_before_its_dependent ... FAILED
+
+failures:
+
+failures:
+    tests::aur_alternative_is_built_before_its_dependent
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`
