@@ -270,29 +270,47 @@ pub(super) fn resolve(
                             branches.push(alternative);
                             dep.alternatives.clear();
                         }
-                        if try_satisfy(&state.resolved, &mut state.requirers, &dep, &requirer)? {
-                            continue;
+                        let mut existing_choices = Vec::new();
+                        if let Some(exact) = state.resolved.get(&dep.name)
+                            && exact.satisfies(&dep)?
+                        {
+                            existing_choices.push(exact.clone());
+                        } else {
+                            for meta in state.resolved.values() {
+                                if meta.satisfies(&dep)? {
+                                    existing_choices.push(meta.clone());
+                                }
+                            }
+                            existing_choices.sort_by(|a, b| a.name.cmp(&b.name));
                         }
-                        let candidates = cache.candidates(resolver, &dep, &state).map_err(
-                            |error| match error {
-                                ResolveError::NotFound { name, .. } => ResolveError::NotFound {
-                                    name,
-                                    required_by: requirer.clone(),
+                        let candidates = if existing_choices.is_empty() {
+                            if try_satisfy(&state.resolved, &mut state.requirers, &dep, &requirer)?
+                            {
+                                continue;
+                            }
+                            cache.candidates(resolver, &dep, &state).map_err(
+                                |error| match error {
+                                    ResolveError::NotFound { name, .. } => ResolveError::NotFound {
+                                        name,
+                                        required_by: requirer.clone(),
+                                    },
+                                    ResolveError::NoSatisfyingVersion {
+                                        name,
+                                        dep,
+                                        available,
+                                        ..
+                                    } => ResolveError::NoSatisfyingVersion {
+                                        name,
+                                        dep,
+                                        available,
+                                        required_by: requirer.clone(),
+                                    },
+                                    other => other,
                                 },
-                                ResolveError::NoSatisfyingVersion {
-                                    name,
-                                    dep,
-                                    available,
-                                    ..
-                                } => ResolveError::NoSatisfyingVersion {
-                                    name,
-                                    dep,
-                                    available,
-                                    required_by: requirer.clone(),
-                                },
-                                other => other,
-                            },
-                        )?;
+                            )?
+                        } else {
+                            existing_choices
+                        };
                         for meta in candidates.iter().skip(1).rev() {
                             let mut alternative = state.clone();
                             alternative.queue.push_front(Task::Select(

@@ -654,6 +654,21 @@ mod tests {
     }
 
     #[test]
+    fn backtracks_existing_virtual_binding_to_avoid_false_aur_cycle() {
+        let plan = resolve(
+            vec![],
+            vec![
+                pkg(true, "a-app", "1", &["tls-api"], &[], &[], &[]),
+                pkg(true, "b-provider", "1", &["a-app"], &[], &[], &["tls-api"]),
+                pkg(true, "z-provider", "1", &[], &[], &[], &["tls-api"]),
+            ],
+            &["a-app", "b-provider", "z-provider"],
+        )
+        .unwrap();
+        assert_eq!(names(&plan.aur), ["z-provider", "a-app", "b-provider"]);
+    }
+
+    #[test]
     fn linear_chain_resolves_fully() {
         let plan = resolve(
             vec![

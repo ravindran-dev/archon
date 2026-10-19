@@ -1,0 +1,21 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.hCrwZq/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.hCrwZq/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.97s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 1 test
+
+thread 'tests::backtracks_existing_virtual_binding_to_avoid_false_aur_cycle' (371) panicked at crates/archon-resolver/src/lib.rs:662:52:
+called `Result::unwrap()` on an `Err` value: DependencyCycle { cycle: ["a-app", "b-provider", "a-app"] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tests::backtracks_existing_virtual_binding_to_avoid_false_aur_cycle ... FAILED
+
+failures:
+
+failures:
+    tests::backtracks_existing_virtual_binding_to_avoid_false_aur_cycle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`
