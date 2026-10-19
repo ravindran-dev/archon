@@ -1,0 +1,26 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.TjZPUx/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.TjZPUx/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.15s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 2 tests
+
+thread 'tests::virtual_provider_avoids_conflict_with_selected_package' (357) panicked at crates/archon-resolver/src/lib.rs:523:11:
+called `Result::unwrap()` on an `Err` value: NotFound { name: "rejected-only-dependency", required_by: "a-tls" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'tests::virtual_provider_respects_reverse_conflict_even_when_installed' (358) panicked at crates/archon-resolver/src/lib.rs:537:61:
+called `Result::unwrap()` on an `Err` value: PackageConflict { a: "openssl", b: "a-tls", declared_by: "openssl" }
+test tests::virtual_provider_avoids_conflict_with_selected_package ... FAILED
+test tests::virtual_provider_respects_reverse_conflict_even_when_installed ... FAILED
+
+failures:
+
+failures:
+    tests::virtual_provider_avoids_conflict_with_selected_package
+    tests::virtual_provider_respects_reverse_conflict_even_when_installed
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 25 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`

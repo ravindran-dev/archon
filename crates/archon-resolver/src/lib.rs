@@ -146,6 +146,16 @@ impl<'a> Resolver<'a> {
                         .filter(|m| deps_for_name.iter().all(|d| m.satisfies(d)))
                         .collect();
                     if !candidates.is_empty() {
+                        // Compatibility comes before installed/alphabetical
+                        // preference. Keep conflicting candidates only when
+                        // every candidate conflicts, so selection still
+                        // reports a conflict rather than NotFound.
+                        let compatible = |candidate: &PackageMeta| {
+                            !resolved.values().any(|existing| package_conflict(candidate, existing).is_some())
+                        };
+                        if candidates.iter().any(&compatible) {
+                            candidates.retain(compatible);
+                        }
                         candidates.sort_by(|a, b| a.name.cmp(&b.name));
                         // Prefer an already-installed candidate over the
                         // alphabetically-first one — see
@@ -318,6 +328,25 @@ fn note_requirer(
     if !entry.iter().any(|(r, _)| r == requirer) {
         entry.push((requirer.to_owned(), dep.to_string()));
     }
+}
+
+/// A conflict in either direction between two selected candidates.
+fn package_conflict(candidate: &PackageMeta, existing: &PackageMeta) -> Option<ResolveError> {
+    if candidate.conflicts.iter().any(|c| c.name != candidate.name && existing.satisfies(c)) {
+        return Some(ResolveError::PackageConflict {
+            a: candidate.name.clone(),
+            b: existing.name.clone(),
+            declared_by: candidate.name.clone(),
+        });
+    }
+    if existing.conflicts.iter().any(|c| c.name != existing.name && candidate.satisfies(c)) {
+        return Some(ResolveError::PackageConflict {
+            a: existing.name.clone(),
+            b: candidate.name.clone(),
+            declared_by: existing.name.clone(),
+        });
+    }
+    None
 }
 
 /// Pairwise `conflicts=()` check across the resolved set. A package's
@@ -528,6 +557,35 @@ mod tests {
             &["target", "scanner"],
         ).unwrap();
         assert_eq!(names(&plan.aur), ["target", "scanner"]);
+    }
+
+    #[test]
+    fn virtual_provider_avoids_conflict_with_selected_package() {
+        let plan = resolve(
+            vec![
+                pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
+                pkg(false, "openssl", "1", &[], &[], &[], &[]),
+                pkg(false, "a-tls", "1", &["rejected-only-dependency"], &[], &["openssl"], &["tls-api"]),
+                pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
+            ],
+            vec![],
+            &["scanner", "openssl"],
+        ).unwrap();
+        assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
+    }
+
+    #[test]
+    fn virtual_provider_respects_reverse_conflict_even_when_installed() {
+        let official = MockProvider::official(vec![
+            pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
+            pkg(false, "openssl", "1", &[], &[], &["a-tls"], &[]),
+            pkg(false, "a-tls", "1", &[], &[], &[], &["tls-api"]),
+            pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
+        ]);
+        let installed = HashSet::from(["a-tls".to_string()]);
+        let plan = Resolver::new(vec![&official]).prefer_installed(&installed)
+            .resolve(&["scanner".into(), "openssl".into()]).unwrap();
+        assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
     }
 
     #[test]
