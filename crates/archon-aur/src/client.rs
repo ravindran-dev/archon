@@ -58,8 +58,7 @@ impl AurClient {
         };
 
         for chunk in misses.chunks(INFO_CHUNK) {
-            let params: Vec<(&str, &str)> =
-                chunk.iter().map(|n| ("arg[]", n.as_str())).collect();
+            let params: Vec<(&str, &str)> = chunk.iter().map(|n| ("arg[]", n.as_str())).collect();
             let resp: RpcResponse = self
                 .http
                 .get(format!("{}/rpc/v5/info", self.base_url))
@@ -179,8 +178,8 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Minimal canned-response HTTP server: routes are (path-substring,
     /// body) pairs; each accepted connection gets the first matching route.
@@ -258,7 +257,11 @@ mod tests {
         assert!(client.info(&["nope".into()]).unwrap().is_empty());
         let before = hits.load(Ordering::SeqCst);
         assert!(client.info(&["nope".into()]).unwrap().is_empty());
-        assert_eq!(hits.load(Ordering::SeqCst), before, "negative result not cached");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            before,
+            "negative result not cached"
+        );
     }
 
     #[test]

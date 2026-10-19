@@ -9,9 +9,9 @@
 //! there are no `#[cfg(test)]` cases below — correctness here is verified
 //! by actually loading and attaching against a running kernel.
 
+use aya::Ebpf;
 use aya::maps::{Array as AyaArray, MapData, RingBuf as AyaRingBuf};
 use aya::programs::TracePoint;
-use aya::Ebpf;
 use aya_log::EbpfLogger;
 
 use archon_monitor_common::SyscallEvent;
@@ -69,13 +69,20 @@ impl Monitor {
                 .program_mut(prog_name)
                 .ok_or(MonitorError::ProgramNotFound(prog_name))?
                 .try_into()
-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
-            program
-                .load()
-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
+                .map_err(|source| MonitorError::Program {
+                    name: prog_name,
+                    source,
+                })?;
+            program.load().map_err(|source| MonitorError::Program {
+                name: prog_name,
+                source,
+            })?;
             program
                 .attach(category, name)
-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
+                .map_err(|source| MonitorError::Program {
+                    name: prog_name,
+                    source,
+                })?;
         }
         Ok(Self { ebpf, logger })
     }

@@ -1,0 +1,29 @@
+    Checking tokio-rustls v0.26.4
+    Checking archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+    Checking archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking archon-aur v0.2.0 (/home/ravi/archon/crates/archon-aur)
+    Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+error: this `if` statement can be collapsed
+   --> crates/archon/src/commands/install.rs:357:13
+    |
+357 | /             if let Ok(idx) = input.parse::<usize>() {
+358 | |                 if idx > 0 && idx <= suggs.len() {
+359 | |                     return Ok(Some(suggs[idx - 1].pkg.name.clone()));
+360 | |                 }
+361 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+357 ~             if let Ok(idx) = input.parse::<usize>()
+358 ~                 && idx > 0 && idx <= suggs.len() {
+359 |                     return Ok(Some(suggs[idx - 1].pkg.name.clone()));
+360 ~                 }
+    |
+
+error: could not compile `archon-cli` (bin "archon") due to 1 previous error

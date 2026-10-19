@@ -85,7 +85,9 @@ pub fn parse(repo: &str, contents: &str) -> Result<PackageMeta, DescParseError> 
             .get("DESC")
             .and_then(|v| v.first())
             .map(|s| (*s).to_owned()),
-        source: PackageSource::Official { repo: repo.to_owned() },
+        source: PackageSource::Official {
+            repo: repo.to_owned(),
+        },
         depends: deps("DEPENDS")?,
         // Sync dbs don't carry makedepends for prebuilt packages.
         make_depends: vec![],
@@ -132,7 +134,9 @@ browser
         assert!(pkg.conflicts.is_empty());
         assert_eq!(
             pkg.source,
-            PackageSource::Official { repo: "extra".into() }
+            PackageSource::Official {
+                repo: "extra".into()
+            }
         );
     }
 

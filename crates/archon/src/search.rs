@@ -131,13 +131,19 @@ mod tests {
             ],
             "chrome",
         );
-        assert_eq!(names, ["google-chrome", "chromedriver", "chrome-extension-ocrs-git"]);
+        assert_eq!(
+            names,
+            ["google-chrome", "chromedriver", "chrome-extension-ocrs-git"]
+        );
     }
 
     #[test]
     fn exact_match_pins_first_regardless_of_popularity() {
         let names = ranked_names(
-            vec![hit("python-somethingpopular", "aur", 99.0), hit("python", "official", 0.0)],
+            vec![
+                hit("python-somethingpopular", "aur", 99.0),
+                hit("python", "official", 0.0),
+            ],
             "python",
         );
         assert_eq!(names[0], "python");
@@ -146,7 +152,10 @@ mod tests {
     #[test]
     fn prefix_match_beats_plain_substring_within_same_popularity() {
         let names = ranked_names(
-            vec![hit("libchrome-tools", "aur", 0.0), hit("chrome-tools", "aur", 0.0)],
+            vec![
+                hit("libchrome-tools", "aur", 0.0),
+                hit("chrome-tools", "aur", 0.0),
+            ],
             "chrome",
         );
         assert_eq!(names, ["chrome-tools", "libchrome-tools"]);
@@ -162,12 +171,24 @@ mod tests {
             ],
             "chrome",
         );
-        assert_eq!(names, ["google-chrome", "vlc-plugin-chromecast", "chrome-junk-git"]);
+        assert_eq!(
+            names,
+            ["google-chrome", "vlc-plugin-chromecast", "chrome-junk-git"]
+        );
     }
 
     #[test]
     fn ranking_is_case_insensitive() {
-        let names = ranked_names(vec![hit("other-Firefox-thing", "aur", 5.0), hit("Firefox", "aur", 0.0)], "firefox");
-        assert_eq!(names[0], "Firefox", "exact match must be found despite case differences");
+        let names = ranked_names(
+            vec![
+                hit("other-Firefox-thing", "aur", 5.0),
+                hit("Firefox", "aur", 0.0),
+            ],
+            "firefox",
+        );
+        assert_eq!(
+            names[0], "Firefox",
+            "exact match must be found despite case differences"
+        );
     }
 }

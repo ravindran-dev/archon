@@ -15,8 +15,8 @@
 
 pub mod graph;
 pub mod plan;
-pub mod suggest;
 mod search;
+pub mod suggest;
 
 pub use graph::ResolveError;
 pub use plan::{InstallPlan, PlannedPackage};
@@ -43,7 +43,12 @@ pub struct Resolver<'a> {
 
 impl<'a> Resolver<'a> {
     pub fn new(providers: Vec<&'a dyn PackageProvider>) -> Self {
-        Self { providers, prefer_installed: None, backend: archon_types::VersionBackend::Alpm, search_limit: 100_000 }
+        Self {
+            providers,
+            prefer_installed: None,
+            backend: archon_types::VersionBackend::Alpm,
+            search_limit: 100_000,
+        }
     }
 
     /// When a virtual dependency (`provides=()`) can be satisfied by more
@@ -87,7 +92,6 @@ impl<'a> Resolver<'a> {
         self.search_limit = steps;
         self
     }
-
 }
 
 /// Attempt to satisfy `dep` purely from what's already resolved.
@@ -144,7 +148,9 @@ fn find_satisfier<'r>(
     let mut packages: Vec<_> = resolved.values().collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
     for meta in packages {
-        if meta.satisfies(dep)? { return Ok(Some(meta)); }
+        if meta.satisfies(dep)? {
+            return Ok(Some(meta));
+        }
     }
     Ok(None)
 }
@@ -162,12 +168,17 @@ fn note_requirer(
 }
 
 /// A conflict in either direction between two selected candidates.
-fn package_conflict(candidate: &PackageMeta, existing: &PackageMeta) -> Result<Option<ResolveError>, ResolveError> {
+fn package_conflict(
+    candidate: &PackageMeta,
+    existing: &PackageMeta,
+) -> Result<Option<ResolveError>, ResolveError> {
     for (declaring, other) in [(candidate, existing), (existing, candidate)] {
         for conflict in &declaring.conflicts {
             if conflict.name != declaring.name && other.satisfies(conflict)? {
                 return Ok(Some(ResolveError::PackageConflict {
-                    a: declaring.name.clone(), b: other.name.clone(), declared_by: declaring.name.clone(),
+                    a: declaring.name.clone(),
+                    b: other.name.clone(),
+                    declared_by: declaring.name.clone(),
                 }));
             }
         }
@@ -225,7 +236,10 @@ fn build_plan(
         .collect();
     let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for name in &aur_nodes {
-        groups.entry(resolved[name].build_base().to_string()).or_default().insert(name.clone());
+        groups
+            .entry(resolved[name].build_base().to_string())
+            .or_default()
+            .insert(name.clone());
     }
     let group_nodes: BTreeSet<String> = groups.keys().cloned().collect();
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -242,18 +256,28 @@ fn build_plan(
             let Some(meta) = resolved.get(dependent).filter(|m| m.is_aur()) else {
                 continue;
             };
-            let declared = meta.depends.iter().chain(meta.make_depends.iter()).any(|dep| {
-                dep.to_string() == *spec || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
-            });
+            let declared = meta
+                .depends
+                .iter()
+                .chain(meta.make_depends.iter())
+                .any(|dep| {
+                    dep.to_string() == *spec
+                        || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
+                });
             let dependency_base = resolved[dependency].build_base();
             let dependent_base = meta.build_base();
             if declared && dependency_base != dependent_base {
-                edges.entry(dependency_base.to_string()).or_default().insert(dependent_base.to_string());
+                edges
+                    .entry(dependency_base.to_string())
+                    .or_default()
+                    .insert(dependent_base.to_string());
             }
         }
     }
     let aur_order: Vec<String> = graph::toposort(&group_nodes, &edges)?
-        .into_iter().flat_map(|base| groups[&base].iter().cloned().collect::<Vec<_>>()).collect();
+        .into_iter()
+        .flat_map(|base| groups[&base].iter().cloned().collect::<Vec<_>>())
+        .collect();
 
     let mut official: Vec<PlannedPackage> = resolved
         .values()
@@ -311,7 +335,9 @@ mod tests {
             source: if aur {
                 PackageSource::Aur
             } else {
-                PackageSource::Official { repo: "core".into() }
+                PackageSource::Official {
+                    repo: "core".into(),
+                }
             },
             depends: deps(depends),
             make_depends: deps(make_depends),
@@ -322,10 +348,18 @@ mod tests {
 
     impl MockProvider {
         fn official(pkgs: Vec<PackageMeta>) -> Self {
-            Self { label: "official", aur: false, pkgs }
+            Self {
+                label: "official",
+                aur: false,
+                pkgs,
+            }
         }
         fn aur(pkgs: Vec<PackageMeta>) -> Self {
-            Self { label: "aur", aur: true, pkgs }
+            Self {
+                label: "aur",
+                aur: true,
+                pkgs,
+            }
         }
     }
 
@@ -371,13 +405,16 @@ mod tests {
     fn aur_alternative_is_built_before_its_dependent() {
         let mut scanner = pkg(true, "a-scanner", "1", &[], &[], &[], &[]);
         let mut dependency = Dependency::parse("missing-library").unwrap();
-        dependency.alternatives.push(Dependency::parse("z-library").unwrap());
+        dependency
+            .alternatives
+            .push(Dependency::parse("z-library").unwrap());
         scanner.depends.push(dependency);
         let plan = resolve(
             vec![],
             vec![scanner, pkg(true, "z-library", "1", &[], &[], &[], &[])],
             &["a-scanner"],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(names(&plan.aur), ["z-library", "a-scanner"]);
     }
 
@@ -387,12 +424,21 @@ mod tests {
             vec![
                 pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
                 pkg(false, "openssl", "1", &[], &[], &[], &[]),
-                pkg(false, "a-tls", "1", &["rejected-only-dependency"], &[], &["openssl"], &["tls-api"]),
+                pkg(
+                    false,
+                    "a-tls",
+                    "1",
+                    &["rejected-only-dependency"],
+                    &[],
+                    &["openssl"],
+                    &["tls-api"],
+                ),
                 pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
             ],
             vec![],
             &["scanner", "openssl"],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
     }
 
@@ -405,8 +451,10 @@ mod tests {
             pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
         ]);
         let installed = HashSet::from(["a-tls".to_string()]);
-        let plan = Resolver::new(vec![&official]).prefer_installed(&installed)
-            .resolve(&["scanner".into(), "openssl".into()]).unwrap();
+        let plan = Resolver::new(vec![&official])
+            .prefer_installed(&installed)
+            .resolve(&["scanner".into(), "openssl".into()])
+            .unwrap();
         assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
     }
 
@@ -416,12 +464,23 @@ mod tests {
             vec![
                 pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
                 pkg(false, "openssl", "1", &[], &[], &[], &[]),
-                pkg(false, "a-tls", "1", &["unavailable"], &[], &["openssl"], &["tls-api"]),
+                pkg(
+                    false,
+                    "a-tls",
+                    "1",
+                    &["unavailable"],
+                    &[],
+                    &["openssl"],
+                    &["tls-api"],
+                ),
             ],
             vec![],
             &["scanner", "openssl"],
         );
-        assert!(matches!(result, Err(ResolveError::PackageConflict { .. })), "{result:?}");
+        assert!(
+            matches!(result, Err(ResolveError::PackageConflict { .. })),
+            "{result:?}"
+        );
     }
 
     #[test]
@@ -433,7 +492,8 @@ mod tests {
                 pkg(true, "scanner", "1", &["target"], &[], &[], &[]),
             ],
             &["target", "scanner"],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(names(&plan.aur), ["target", "scanner"]);
     }
 
@@ -443,28 +503,49 @@ mod tests {
         let mut dep = Dependency::parse("bad").unwrap();
         dep.alternatives.push(Dependency::parse("good").unwrap());
         app.depends.push(dep);
-        let plan = resolve(vec![
-            app,
-            pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
-            pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
-            pkg(false, "private-child", "1", &[], &[], &[], &[]),
-            pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
-            pkg(false, "good", "1", &[], &[], &[], &[]),
-        ], vec![], &["app", "later"]).unwrap();
+        let plan = resolve(
+            vec![
+                app,
+                pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
+                pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
+                pkg(false, "private-child", "1", &[], &[], &[], &[]),
+                pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
+                pkg(false, "good", "1", &[], &[], &[], &[]),
+            ],
+            vec![],
+            &["app", "later"],
+        )
+        .unwrap();
         assert_eq!(names(&plan.official), ["app", "blocker", "good", "later"]);
     }
 
     #[test]
     fn backtracks_virtual_provider_after_late_conflict() {
-        let plan = resolve(vec![
-            pkg(false, "app", "1", &["tls-api"], &[], &[], &[]),
-            pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
-            pkg(false, "a-provider", "1", &["private-child"], &[], &[], &["tls-api"]),
-            pkg(false, "private-child", "1", &[], &[], &[], &[]),
-            pkg(false, "blocker", "1", &[], &[], &["a-provider"], &[]),
-            pkg(false, "z-provider", "1", &[], &[], &[], &["tls-api"]),
-        ], vec![], &["app", "later"]).unwrap();
-        assert_eq!(names(&plan.official), ["app", "blocker", "later", "z-provider"]);
+        let plan = resolve(
+            vec![
+                pkg(false, "app", "1", &["tls-api"], &[], &[], &[]),
+                pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
+                pkg(
+                    false,
+                    "a-provider",
+                    "1",
+                    &["private-child"],
+                    &[],
+                    &[],
+                    &["tls-api"],
+                ),
+                pkg(false, "private-child", "1", &[], &[], &[], &[]),
+                pkg(false, "blocker", "1", &[], &[], &["a-provider"], &[]),
+                pkg(false, "z-provider", "1", &[], &[], &[], &["tls-api"]),
+            ],
+            vec![],
+            &["app", "later"],
+        )
+        .unwrap();
+        assert_eq!(
+            names(&plan.official),
+            ["app", "blocker", "later", "z-provider"]
+        );
     }
 
     #[test]
@@ -481,16 +562,24 @@ mod tests {
         let mut dep = Dependency::parse("bad").unwrap();
         dep.alternatives.push(Dependency::parse("good").unwrap());
         app.depends.push(dep);
-        let plan = resolve(vec![
-            app,
-            pkg(false, "later", "1", &["middle"], &[], &[], &[]),
-            pkg(false, "middle", "1", &["blocker"], &[], &[], &[]),
-            pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
-            pkg(false, "private-child", "1", &[], &[], &[], &[]),
-            pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
-            pkg(false, "good", "1", &[], &[], &[], &[]),
-        ], vec![], &["app", "later"]).unwrap();
-        assert_eq!(names(&plan.official), ["app", "blocker", "good", "later", "middle"]);
+        let plan = resolve(
+            vec![
+                app,
+                pkg(false, "later", "1", &["middle"], &[], &[], &[]),
+                pkg(false, "middle", "1", &["blocker"], &[], &[], &[]),
+                pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
+                pkg(false, "private-child", "1", &[], &[], &[], &[]),
+                pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
+                pkg(false, "good", "1", &[], &[], &[], &[]),
+            ],
+            vec![],
+            &["app", "later"],
+        )
+        .unwrap();
+        assert_eq!(
+            names(&plan.official),
+            ["app", "blocker", "good", "later", "middle"]
+        );
     }
 
     #[test]
@@ -499,10 +588,16 @@ mod tests {
         let mut dep = Dependency::parse("bad").unwrap();
         dep.alternatives.push(Dependency::parse("good").unwrap());
         app.depends.push(dep);
-        let plan = resolve(vec![app,
-            pkg(false, "bad", "1", &["unavailable"], &[], &[], &[]),
-            pkg(false, "good", "1", &[], &[], &[], &[]),
-        ], vec![], &["app"]).unwrap();
+        let plan = resolve(
+            vec![
+                app,
+                pkg(false, "bad", "1", &["unavailable"], &[], &[], &[]),
+                pkg(false, "good", "1", &[], &[], &[], &[]),
+            ],
+            vec![],
+            &["app"],
+        )
+        .unwrap();
         assert_eq!(names(&plan.official), ["app", "good"]);
     }
 
@@ -512,17 +607,26 @@ mod tests {
         let mut dep = Dependency::parse("cyclic").unwrap();
         dep.alternatives.push(Dependency::parse("good").unwrap());
         app.depends.push(dep);
-        let plan = resolve(vec![], vec![app,
-            pkg(true, "cyclic", "1", &["app"], &[], &[], &[]),
-            pkg(true, "good", "1", &[], &[], &[], &[]),
-        ], &["app"]).unwrap();
+        let plan = resolve(
+            vec![],
+            vec![
+                app,
+                pkg(true, "cyclic", "1", &["app"], &[], &[], &[]),
+                pkg(true, "good", "1", &[], &[], &[], &[]),
+            ],
+            &["app"],
+        )
+        .unwrap();
         assert_eq!(names(&plan.aur), ["good", "app"]);
     }
 
     #[test]
     fn search_exhaustion_is_explicit() {
-        let provider = MockProvider::official(vec![pkg(false, "app", "1", &["lib"], &[], &[], &[])]);
-        let result = Resolver::new(vec![&provider]).with_search_limit(1).resolve(&["app".into()]);
+        let provider =
+            MockProvider::official(vec![pkg(false, "app", "1", &["lib"], &[], &[], &[])]);
+        let result = Resolver::new(vec![&provider])
+            .with_search_limit(1)
+            .resolve(&["app".into()]);
         assert!(matches!(result, Err(ResolveError::SearchLimit { .. })));
     }
 
@@ -532,8 +636,10 @@ mod tests {
         candidate.source = PackageSource::Apt;
         candidate.version = Version::parse_dpkg("1.0~rc1").unwrap();
         let provider = MockProvider::official(vec![candidate]);
-        let plan = Resolver::new(vec![&provider]).with_version_backend(archon_types::VersionBackend::Dpkg)
-            .resolve(&["tool<1.0".into()]).unwrap();
+        let plan = Resolver::new(vec![&provider])
+            .with_version_backend(archon_types::VersionBackend::Dpkg)
+            .resolve(&["tool<1.0".into()])
+            .unwrap();
         assert_eq!(names(&plan.official), ["tool"]);
     }
 
@@ -591,7 +697,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plan.package_count(), 4);
-        let base = plan.official.iter().find(|p| p.meta.name == "base").unwrap();
+        let base = plan
+            .official
+            .iter()
+            .find(|p| p.meta.name == "base")
+            .unwrap();
         let mut req = base.required_by.clone();
         req.sort();
         assert_eq!(req, ["left", "right"]);
@@ -686,8 +796,24 @@ mod tests {
     fn prefer_installed_avoids_unnecessary_conflicting_swap() {
         let official = MockProvider::official(vec![
             pkg(false, "app", "1.0-1", &["jack"], &[], &[], &[]),
-            pkg(false, "jack2", "1.9-1", &[], &[], &["pipewire-jack"], &["jack"]),
-            pkg(false, "pipewire-jack", "1.6-1", &[], &[], &["jack2"], &["jack"]),
+            pkg(
+                false,
+                "jack2",
+                "1.9-1",
+                &[],
+                &[],
+                &["pipewire-jack"],
+                &["jack"],
+            ),
+            pkg(
+                false,
+                "pipewire-jack",
+                "1.6-1",
+                &[],
+                &[],
+                &["jack2"],
+                &["jack"],
+            ),
         ]);
         let aur = MockProvider::aur(vec![]);
         let installed: HashSet<String> = ["pipewire-jack".to_string()].into_iter().collect();
@@ -784,7 +910,12 @@ mod tests {
         )
         .unwrap_err();
         match err {
-            ResolveError::NoSatisfyingVersion { name, available, required_by, .. } => {
+            ResolveError::NoSatisfyingVersion {
+                name,
+                available,
+                required_by,
+                ..
+            } => {
                 assert_eq!(name, "lib");
                 assert_eq!(available, "2.0-1");
                 assert_eq!(required_by, "app");
@@ -821,7 +952,10 @@ mod tests {
             &["a", "b"],
         )
         .unwrap_err();
-        assert!(matches!(err, ResolveError::PackageConflict { .. }), "got: {err}");
+        assert!(
+            matches!(err, ResolveError::PackageConflict { .. }),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -829,10 +963,22 @@ mod tests {
         // Common PKGBUILD idiom: provides=(foo) conflicts=(foo).
         let plan = resolve(
             vec![],
-            vec![pkg(true, "foo-git", "1.0-1", &[], &[], &["foo-git"], &["foo-git"])],
+            vec![pkg(
+                true,
+                "foo-git",
+                "1.0-1",
+                &[],
+                &[],
+                &["foo-git"],
+                &["foo-git"],
+            )],
             &["foo-git"],
         );
-        assert!(plan.is_ok(), "self-conflict must not be fatal: {:?}", plan.err());
+        assert!(
+            plan.is_ok(),
+            "self-conflict must not be fatal: {:?}",
+            plan.err()
+        );
     }
 
     #[test]
@@ -848,7 +994,10 @@ mod tests {
         .unwrap_err();
         match err {
             ResolveError::DependencyCycle { cycle } => {
-                assert!(cycle.len() >= 3, "cycle path should close on itself: {cycle:?}");
+                assert!(
+                    cycle.len() >= 3,
+                    "cycle path should close on itself: {cycle:?}"
+                );
                 assert_eq!(cycle.first(), cycle.last());
             }
             other => panic!("expected DependencyCycle, got: {other}"),
@@ -867,24 +1016,27 @@ mod tests {
             vec![],
             &["glibc"],
         );
-        assert!(plan.is_ok(), "official cycle must be fine: {:?}", plan.err());
+        assert!(
+            plan.is_ok(),
+            "official cycle must be fine: {:?}",
+            plan.err()
+        );
     }
 
     #[test]
     fn alternatives_fallback_if_primary_fails() {
         let mut p = pkg(false, "app", "1.0-1", &[], &[], &[], &[]);
         let mut dep = Dependency::parse("missing-pkg").unwrap();
-        dep.alternatives.push(Dependency::parse("available-pkg").unwrap());
+        dep.alternatives
+            .push(Dependency::parse("available-pkg").unwrap());
         p.depends.push(dep);
 
         let plan = resolve(
-            vec![
-                p,
-                pkg(false, "available-pkg", "1.0-1", &[], &[], &[], &[]),
-            ],
+            vec![p, pkg(false, "available-pkg", "1.0-1", &[], &[], &[], &[])],
             vec![],
             &["app"],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(names(&plan.official), ["app", "available-pkg"]);
     }
 
@@ -899,7 +1051,15 @@ mod tests {
         // postfix and exim4 both exist.
         // But the user ALSO explicitly installed "otherapp", which depends on "exim4"
         // and conflicts with "postfix".
-        let otherapp = pkg(false, "otherapp", "1.0-1", &["exim4"], &[], &["postfix"], &[]);
+        let otherapp = pkg(
+            false,
+            "otherapp",
+            "1.0-1",
+            &["exim4"],
+            &[],
+            &["postfix"],
+            &[],
+        );
 
         let plan = resolve(
             vec![
@@ -912,7 +1072,7 @@ mod tests {
             &["app", "otherapp"],
         )
         .unwrap();
-        
+
         assert!(names(&plan.official).contains(&"exim4"));
         assert!(!names(&plan.official).contains(&"postfix"));
     }
@@ -936,6 +1096,9 @@ mod tests {
             &["app>=2"],
         )
         .unwrap_err();
-        assert!(matches!(err, ResolveError::NoSatisfyingVersion { .. }), "got: {err}");
+        assert!(
+            matches!(err, ResolveError::NoSatisfyingVersion { .. }),
+            "got: {err}"
+        );
     }
 }

@@ -71,7 +71,12 @@ impl Version {
             Some((v, r)) => (v.to_owned(), Some(r.to_owned())),
             None => (rest.to_owned(), None),
         };
-        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Alpm })
+        Ok(Version {
+            epoch,
+            pkgver,
+            pkgrel,
+            backend: VersionBackend::Alpm,
+        })
     }
 
     pub fn parse_dpkg(s: &str) -> Result<Self, VersionParseError> {
@@ -91,16 +96,25 @@ impl Version {
             Some(idx) => (rest[..idx].to_owned(), Some(rest[idx + 1..].to_owned())),
             None => (rest.to_owned(), None),
         };
-        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Dpkg })
+        Ok(Version {
+            epoch,
+            pkgver,
+            pkgrel,
+            backend: VersionBackend::Dpkg,
+        })
     }
 
     /// libalpm-compatible comparison (see type-level docs for the rules).
     pub fn vercmp(&self, other: &Self) -> Result<Ordering, VersionCompareError> {
         if self.backend != other.backend {
-            return Err(VersionCompareError { left: self.backend, right: other.backend });
+            return Err(VersionCompareError {
+                left: self.backend,
+                right: other.backend,
+            });
         }
 
-        Ok(self.epoch
+        Ok(self
+            .epoch
             .cmp(&other.epoch)
             .then_with(|| {
                 if self.backend == VersionBackend::Dpkg {
@@ -116,15 +130,25 @@ impl Version {
                     } else {
                         rpmvercmp(a, b)
                     }
-                },
-                (Some(a), None) => if self.backend == VersionBackend::Dpkg { dpkgvercmp(a, "") } else { Ordering::Equal },
-                (None, Some(b)) => if other.backend == VersionBackend::Dpkg { dpkgvercmp("", b) } else { Ordering::Equal },
+                }
+                (Some(a), None) => {
+                    if self.backend == VersionBackend::Dpkg {
+                        dpkgvercmp(a, "")
+                    } else {
+                        Ordering::Equal
+                    }
+                }
+                (None, Some(b)) => {
+                    if other.backend == VersionBackend::Dpkg {
+                        dpkgvercmp("", b)
+                    } else {
+                        Ordering::Equal
+                    }
+                }
                 _ => Ordering::Equal,
             }))
     }
 }
-
-
 
 fn dpkg_order(c: u8) -> i32 {
     if c.is_ascii_alphabetic() {
@@ -145,8 +169,12 @@ fn dpkgvercmp(a: &str, b: &str) -> Ordering {
     while !a.is_empty() || !b.is_empty() {
         let mut i = 0;
         let mut j = 0;
-        while i < a.len() && !a[i].is_ascii_digit() { i += 1; }
-        while j < b.len() && !b[j].is_ascii_digit() { j += 1; }
+        while i < a.len() && !a[i].is_ascii_digit() {
+            i += 1;
+        }
+        while j < b.len() && !b[j].is_ascii_digit() {
+            j += 1;
+        }
 
         let a_chars = &a[..i];
         let b_chars = &b[..j];
@@ -168,16 +196,27 @@ fn dpkgvercmp(a: &str, b: &str) -> Ordering {
 
         i = 0;
         j = 0;
-        while i < a.len() && a[i].is_ascii_digit() { i += 1; }
-        while j < b.len() && b[j].is_ascii_digit() { j += 1; }
+        while i < a.len() && a[i].is_ascii_digit() {
+            i += 1;
+        }
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
 
         let mut a_digits = &a[..i];
         let mut b_digits = &b[..j];
-        
-        while a_digits.first() == Some(&b'0') { a_digits = &a_digits[1..]; }
-        while b_digits.first() == Some(&b'0') { b_digits = &b_digits[1..]; }
 
-        let ord = a_digits.len().cmp(&b_digits.len()).then_with(|| a_digits.cmp(b_digits));
+        while a_digits.first() == Some(&b'0') {
+            a_digits = &a_digits[1..];
+        }
+        while b_digits.first() == Some(&b'0') {
+            b_digits = &b_digits[1..];
+        }
+
+        let ord = a_digits
+            .len()
+            .cmp(&b_digits.len())
+            .then_with(|| a_digits.cmp(b_digits));
         if ord != Ordering::Equal {
             return ord;
         }
@@ -259,7 +298,11 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
         // `seg_a` is never empty here; if `b`'s segment is the other type,
         // numeric beats alphabetic.
         if seg_b.is_empty() {
-            return if numeric { Ordering::Greater } else { Ordering::Less };
+            return if numeric {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
         }
 
         let ord = if numeric {
@@ -284,18 +327,14 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
         // loses ("1.0rc" < "1.0"); any other leftover (digits, separators)
         // wins ("1.0.1" > "1.0", "1.0.a" > "1.0").
         (false, true) => {
-            if b[j] == b'~' {
-                Ordering::Greater
-            } else if b[j].is_ascii_alphabetic() {
+            if b[j] == b'~' || b[j].is_ascii_alphabetic() {
                 Ordering::Greater
             } else {
                 Ordering::Less
             }
         }
         (true, false) => {
-            if a[i] == b'~' {
-                Ordering::Less
-            } else if a[i].is_ascii_alphabetic() {
+            if a[i] == b'~' || a[i].is_ascii_alphabetic() {
                 Ordering::Less
             } else {
                 Ordering::Greater
@@ -334,9 +373,13 @@ mod tests {
         let arch = Version::parse("1").unwrap();
         let deb = Version::parse_dpkg("1").unwrap();
         assert!(std::panic::catch_unwind(|| arch.vercmp(&deb)).is_ok());
-        assert_eq!(arch.vercmp(&deb), Err(VersionCompareError {
-            left: VersionBackend::Alpm, right: VersionBackend::Dpkg,
-        }));
+        assert_eq!(
+            arch.vercmp(&deb),
+            Err(VersionCompareError {
+                left: VersionBackend::Alpm,
+                right: VersionBackend::Dpkg,
+            })
+        );
     }
 
     fn v(s: &str) -> Version {
@@ -369,7 +412,9 @@ mod tests {
     /// adjacent pair (and by transitivity, every pair) must sort in order.
     #[test]
     fn man_page_alpha_chain() {
-        let chain = ["1.0a", "1.0alpha", "1.0b", "1.0beta", "1.0rc", "1.0", "1.0.a", "1.0.1"];
+        let chain = [
+            "1.0a", "1.0alpha", "1.0b", "1.0beta", "1.0rc", "1.0", "1.0.a", "1.0.1",
+        ];
         assert_chain_ascending(&chain);
     }
 
@@ -455,7 +500,7 @@ mod tests {
         assert_eq!(v("1.0~rc1~2").vercmp(&v("1.0~rc1")).unwrap(), Less);
         assert_eq!(v("1~rc1").vercmp(&v("1~rc1")).unwrap(), Equal);
     }
-    
+
     fn dv(s: &str) -> Version {
         Version::parse_dpkg(s).unwrap()
     }

@@ -72,7 +72,9 @@ mod tests {
             total_events: 10,
             flagged: vec![FlaggedEvent {
                 event,
-                reason: FlagReason::UnexpectedExec { path: "/tmp/payload".into() },
+                reason: FlagReason::UnexpectedExec {
+                    path: "/tmp/payload".into(),
+                },
             }],
         };
         assert!(!report.is_clean());

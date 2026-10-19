@@ -65,14 +65,7 @@ impl SandboxPolicy {
         args.extend(["--cap-drop".into(), "ALL".into()]);
         // Whole host visible read-only: toolchain, headers, pacman db.
         args.extend(["--ro-bind".into(), "/".into(), "/".into()]);
-        args.extend(
-            [
-                "--proc", "/proc",
-                "--dev", "/dev",
-                "--tmpfs", "/tmp",
-            ]
-            .map(String::from),
-        );
+        args.extend(["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"].map(String::from));
         // Mask other users' homes and root's home before re-exposing just
         // the build directory, in case it happens to live under /home.
         args.extend(["--tmpfs".into(), "/home".into()]);
@@ -174,7 +167,10 @@ mod tests {
             .windows(3)
             .position(|w| w[0] == "--bind" && w[1] == "/home/user/build/foo")
             .unwrap();
-        assert!(pkg_bind > home_mask, "pkg_dir bind must come after the /home mask");
+        assert!(
+            pkg_bind > home_mask,
+            "pkg_dir bind must come after the /home mask"
+        );
     }
 
     #[test]
@@ -219,7 +215,10 @@ mod tests {
             .windows(2)
             .position(|w| w[0] == "--tmpfs" && w[1] == "/tmp")
             .unwrap();
-        assert!(tmp_pos > ro_bind_pos, "--tmpfs /tmp must come after --ro-bind / /");
+        assert!(
+            tmp_pos > ro_bind_pos,
+            "--tmpfs /tmp must come after --ro-bind / /"
+        );
     }
 
     /// Regression test: without masking /run, a sandboxed `gpg` reaches

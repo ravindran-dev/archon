@@ -1,0 +1,9 @@
+    Checking archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+    Checking archon-sandbox v0.2.0 (/home/ravi/archon/crates/archon-sandbox)
+    Checking archon-monitor v0.2.0 (/home/ravi/archon/crates/archon-monitor)
+    Checking archon-distro v0.2.0 (/home/ravi/archon/crates/archon-distro)
+    Checking archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+    Checking archon-aur v0.2.0 (/home/ravi/archon/crates/archon-aur)
+    Checking archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+    Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.62s

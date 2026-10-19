@@ -36,7 +36,11 @@ impl OutputCapture {
         let buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let stdout_handle = child.stdout.take().map(|p| spawn_drain(buf.clone(), p));
         let stderr_handle = child.stderr.take().map(|p| spawn_drain(buf.clone(), p));
-        Self { buf, stdout_handle, stderr_handle }
+        Self {
+            buf,
+            stdout_handle,
+            stderr_handle,
+        }
     }
 
     /// Joins the reader threads (only meaningful once the child has

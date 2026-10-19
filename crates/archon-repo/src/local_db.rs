@@ -46,8 +46,12 @@ impl LocalDb {
         let mut versions = HashMap::new();
         for entry in entries.flatten() {
             let desc_path = entry.path().join("desc");
-            let Ok(contents) = std::fs::read_to_string(&desc_path) else { continue };
-            let Ok(meta) = desc::parse("local", &contents) else { continue };
+            let Ok(contents) = std::fs::read_to_string(&desc_path) else {
+                continue;
+            };
+            let Ok(meta) = desc::parse("local", &contents) else {
+                continue;
+            };
             versions.insert(meta.name, meta.version);
         }
         Ok(Self { versions })
@@ -66,7 +70,9 @@ impl LocalDb {
         let Ok(fingerprint) = cache::Fingerprint::of_dir(local_dir) else {
             return Self::load(local_dir);
         };
-        if let Some(versions) = cache::try_read::<HashMap<String, Version>>(cache_path, &fingerprint) {
+        if let Some(versions) =
+            cache::try_read::<HashMap<String, Version>>(cache_path, &fingerprint)
+        {
             return Ok(Self { versions });
         }
         let this = Self::load(local_dir)?;
@@ -81,9 +87,11 @@ impl LocalDb {
     /// Whether `name` is installed at `min_version` or newer — the same
     /// bar `pacman -S --needed` uses to decide whether to skip a package.
     pub fn satisfies(&self, name: &str, min_version: &Version) -> bool {
-        self.versions
-            .get(name)
-            .is_some_and(|installed| installed.vercmp(min_version).is_ok_and(|order| order != std::cmp::Ordering::Less))
+        self.versions.get(name).is_some_and(|installed| {
+            installed
+                .vercmp(min_version)
+                .is_ok_and(|order| order != std::cmp::Ordering::Less)
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -142,7 +150,11 @@ mod tests {
     fn skips_unparseable_entries_without_failing() {
         let dir = fixture(&[("good", "1.0-1")]);
         std::fs::create_dir_all(dir.path().join("garbage-dir")).unwrap();
-        std::fs::write(dir.path().join("garbage-dir").join("desc"), "not a valid desc file").unwrap();
+        std::fs::write(
+            dir.path().join("garbage-dir").join("desc"),
+            "not a valid desc file",
+        )
+        .unwrap();
         let db = LocalDb::load(dir.path()).unwrap();
         assert_eq!(db.len(), 1);
         assert!(db.version_of("good").is_some());

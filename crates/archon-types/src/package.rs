@@ -74,28 +74,49 @@ mod tests {
             name: name.into(),
             version: Version::parse(version).unwrap(),
             description: None,
-            source: PackageSource::Official { repo: "core".into() },
+            source: PackageSource::Official {
+                repo: "core".into(),
+            },
             package_base: None,
             depends: vec![],
             make_depends: vec![],
             conflicts: vec![],
-            provides: provides.iter().map(|p| Dependency::parse(p).unwrap()).collect(),
+            provides: provides
+                .iter()
+                .map(|p| Dependency::parse(p).unwrap())
+                .collect(),
         }
     }
 
     #[test]
     fn satisfies_by_exact_name_and_version() {
         let p = pkg("python", "3.12.1-1", &[]);
-        assert!(p.satisfies(&Dependency::parse("python>=3.11").unwrap()).unwrap());
-        assert!(!p.satisfies(&Dependency::parse("python>=3.13").unwrap()).unwrap());
+        assert!(
+            p.satisfies(&Dependency::parse("python>=3.11").unwrap())
+                .unwrap()
+        );
+        assert!(
+            !p.satisfies(&Dependency::parse("python>=3.13").unwrap())
+                .unwrap()
+        );
     }
 
     #[test]
     fn satisfies_via_provides() {
         let p = pkg("bash", "5.2-1", &["sh"]);
         assert!(p.satisfies(&Dependency::parse("sh").unwrap()).unwrap());
-        let jdk = pkg("jdk-openjdk", "21.0.2-1", &["jdk=21", "java-environment=21"]);
-        assert!(jdk.satisfies(&Dependency::parse("jdk>=17").unwrap()).unwrap());
-        assert!(!jdk.satisfies(&Dependency::parse("jdk>=22").unwrap()).unwrap());
+        let jdk = pkg(
+            "jdk-openjdk",
+            "21.0.2-1",
+            &["jdk=21", "java-environment=21"],
+        );
+        assert!(
+            jdk.satisfies(&Dependency::parse("jdk>=17").unwrap())
+                .unwrap()
+        );
+        assert!(
+            !jdk.satisfies(&Dependency::parse("jdk>=22").unwrap())
+                .unwrap()
+        );
     }
 }

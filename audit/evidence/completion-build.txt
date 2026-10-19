@@ -1,0 +1,9 @@
+   Compiling archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+   Compiling archon-sandbox v0.2.0 (/home/ravi/archon/crates/archon-sandbox)
+   Compiling archon-distro v0.2.0 (/home/ravi/archon/crates/archon-distro)
+   Compiling archon-monitor v0.2.0 (/home/ravi/archon/crates/archon-monitor)
+   Compiling archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+   Compiling archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+   Compiling archon-aur v0.2.0 (/home/ravi/archon/crates/archon-aur)
+   Compiling archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.55s

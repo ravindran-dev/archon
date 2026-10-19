@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use archon_monitor::EventStore;
 use archon_sandbox::SandboxRunner;
 
@@ -25,7 +25,10 @@ pub fn run(dir: &Path, report: bool) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("build directory {} does not exist", dir.display()))?;
     if !dir.join("PKGBUILD").is_file() {
-        bail!("no PKGBUILD found in {} — is this an AUR package directory?", dir.display());
+        bail!(
+            "no PKGBUILD found in {} — is this an AUR package directory?",
+            dir.display()
+        );
     }
     if !SandboxRunner::bwrap_available() {
         bail!(
@@ -77,8 +80,8 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
         install::ensure_owned(cache_root, privileges.uid, privileges.gid)?;
     }
     install::ensure_owned(&build_root, privileges.uid, privileges.gid)?;
-    let store = EventStore::open(&build_root.join("monitor.db"))
-        .context("failed to open event store")?;
+    let store =
+        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
 
     let report = install::run_monitored_build(&mut monitor, &store, dir, pkg_name, &privileges)?;
     crate::ui::print_report(&report);
@@ -86,7 +89,10 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
     if report.is_clean() {
         report_outputs(dir, pkg_name)?;
     } else {
-        println!("{}", crate::color::red("not installed — this is `build`, which never installs anyway"));
+        println!(
+            "{}",
+            crate::color::red("not installed — this is `build`, which never installs anyway")
+        );
     }
     Ok(())
 }

@@ -44,7 +44,11 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
         color::bold("▶ Install plan —"),
         total,
         if total == 1 { "" } else { "s" },
-        color::dim(&format!("({} official, {} aur)", plan.official.len(), plan.aur.len())),
+        color::dim(&format!(
+            "({} official, {} aur)",
+            plan.official.len(),
+            plan.aur.len()
+        )),
     );
 
     let is_satisfied =
@@ -61,13 +65,19 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
                 color::dim(&p.meta.version.to_string())
             );
             if !p.required_by.is_empty() {
-                line.push_str(&color::dim(&format!("  (needs: {})", p.required_by.join(", "))));
+                line.push_str(&color::dim(&format!(
+                    "  (needs: {})",
+                    p.required_by.join(", ")
+                )));
             }
             println!("{line}");
         }
         if !already.is_empty() {
             let names: Vec<&str> = already.iter().map(|p| p.meta.name.as_str()).collect();
-            println!("  {}", color::dim(&format!("already installed: {}", names.join(", "))));
+            println!(
+                "  {}",
+                color::dim(&format!("already installed: {}", names.join(", ")))
+            );
         }
         println!();
     }
@@ -78,7 +88,10 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
         if new.is_empty() {
             println!(
                 "  {}",
-                color::dim(&format!("Official: all {} already up to date", plan.official.len()))
+                color::dim(&format!(
+                    "Official: all {} already up to date",
+                    plan.official.len()
+                ))
             );
             return;
         }
@@ -87,16 +100,26 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
         } else {
             format!(", {} already up to date", already.len())
         };
-        println!("  {}", color::cyan(&format!("Official ({} new/updated{suffix}):", new.len())));
+        println!(
+            "  {}",
+            color::cyan(&format!("Official ({} new/updated{suffix}):", new.len()))
+        );
         if new.len() <= DETAIL_THRESHOLD {
             print_detailed(&new);
         } else if new.len() <= SAMPLE_THRESHOLD {
             let names: Vec<&str> = new.iter().map(|p| p.meta.name.as_str()).collect();
             print_wrapped(&names);
         } else {
-            let names: Vec<&str> = new.iter().take(SAMPLE_SIZE).map(|p| p.meta.name.as_str()).collect();
+            let names: Vec<&str> = new
+                .iter()
+                .take(SAMPLE_SIZE)
+                .map(|p| p.meta.name.as_str())
+                .collect();
             print_wrapped(&names);
-            println!("    {}", color::dim(&format!("... and {} more", new.len() - SAMPLE_SIZE)));
+            println!(
+                "    {}",
+                color::dim(&format!("... and {} more", new.len() - SAMPLE_SIZE))
+            );
         }
     }
 }
@@ -113,7 +136,10 @@ fn print_detailed(pkgs: &[&PlannedPackage]) {
             name_width = name_width
         );
         if !p.required_by.is_empty() {
-            line.push_str(&color::dim(&format!("  (required by: {})", p.required_by.join(", "))));
+            line.push_str(&color::dim(&format!(
+                "  (required by: {})",
+                p.required_by.join(", ")
+            )));
         }
         println!("{line}");
     }
@@ -127,7 +153,11 @@ fn print_wrapped(names: &[&str]) {
     const INDENT: &str = "    ";
     let mut line = String::from(INDENT);
     for (i, name) in names.iter().enumerate() {
-        let piece = if i + 1 == names.len() { name.to_string() } else { format!("{name}, ") };
+        let piece = if i + 1 == names.len() {
+            name.to_string()
+        } else {
+            format!("{name}, ")
+        };
         if line.len() > INDENT.len() && line.len() + piece.len() > WIDTH {
             println!("{}", color::dim(&line));
             line = String::from(INDENT);
@@ -142,13 +172,22 @@ fn print_wrapped(names: &[&str]) {
 /// Diff-style build report: a clean report prints green, a flagged one
 /// prints its violations in red so they can't be scanned past by accident.
 pub fn print_report(report: &BuildReport) {
-    println!("\n{}", color::bold(&format!("Build report for {}", report.package)));
+    println!(
+        "\n{}",
+        color::bold(&format!("Build report for {}", report.package))
+    );
     println!("  {} syscall event(s) observed", report.total_events);
     if report.is_clean() {
-        println!("  {}", color::green("no policy violations — nothing flagged"));
+        println!(
+            "  {}",
+            color::green("no policy violations — nothing flagged")
+        );
         return;
     }
-    println!("  {}", color::bold_red(&format!("{} event(s) FLAGGED:", report.flagged.len())));
+    println!(
+        "  {}",
+        color::bold_red(&format!("{} event(s) FLAGGED:", report.flagged.len()))
+    );
     for flagged in &report.flagged {
         println!(
             "    {} pid={} comm={} — {}",

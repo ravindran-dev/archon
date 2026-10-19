@@ -1,16 +1,24 @@
 //! Pure bounds used by the interactive typo-correction path.
 
 pub fn search_prefix(name: &str) -> &str {
-    let end = name.char_indices().nth(3).map_or(name.len(), |(index, _)| index);
+    let end = name
+        .char_indices()
+        .nth(3)
+        .map_or(name.len(), |(index, _)| index);
     &name[..end]
 }
 
 pub fn chain(previous: &[String], name: &str) -> Result<Vec<String>, String> {
     let mut chain = previous.to_vec();
-    if chain.is_empty() { chain.push(name.to_string()); }
+    if chain.is_empty() {
+        chain.push(name.to_string());
+    }
     if chain.len() >= 3 {
-        return Err(format!("Recursion depth exceeded for package '{}'. Attempted corrections: {}",
-            chain[0], chain.join(" -> ")));
+        return Err(format!(
+            "Recursion depth exceeded for package '{}'. Attempted corrections: {}",
+            chain[0],
+            chain.join(" -> ")
+        ));
     }
     Ok(chain)
 }

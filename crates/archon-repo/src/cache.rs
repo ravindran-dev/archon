@@ -44,7 +44,11 @@ impl Fingerprint {
     /// child of `/var/lib/pacman/local`, which always bumps its mtime.
     pub fn of_dir(path: &Path) -> std::io::Result<Self> {
         let meta = std::fs::metadata(path)?;
-        Ok(Self(vec![(path.display().to_string(), mtime_secs(&meta), 0)]))
+        Ok(Self(vec![(
+            path.display().to_string(),
+            mtime_secs(&meta),
+            0,
+        )]))
     }
 }
 
@@ -64,7 +68,10 @@ struct CacheFile<T> {
 
 /// `None` on any miss — wrong/missing file, corrupt content, or a
 /// fingerprint mismatch. Never an error; see the module doc comment.
-pub fn try_read<T: serde::de::DeserializeOwned>(cache_path: &Path, current: &Fingerprint) -> Option<T> {
+pub fn try_read<T: serde::de::DeserializeOwned>(
+    cache_path: &Path,
+    current: &Fingerprint,
+) -> Option<T> {
     let bytes = std::fs::read(cache_path).ok()?;
     let cached: CacheFile<T> = serde_json::from_slice(&bytes).ok()?;
     (&cached.fingerprint == current).then_some(cached.data)
@@ -76,11 +83,15 @@ pub fn try_read<T: serde::de::DeserializeOwned>(cache_path: &Path, current: &Fin
 /// filesystem, disk full, ...) is silently swallowed — a failed cache
 /// write must never block the caller, which already has its real answer.
 pub fn write<T: Serialize>(cache_path: &Path, fingerprint: Fingerprint, data: &T) {
-    let Some(parent) = cache_path.parent() else { return };
+    let Some(parent) = cache_path.parent() else {
+        return;
+    };
     if std::fs::create_dir_all(parent).is_err() {
         return;
     }
-    let Ok(bytes) = serde_json::to_vec(&CacheFile { fingerprint, data }) else { return };
+    let Ok(bytes) = serde_json::to_vec(&CacheFile { fingerprint, data }) else {
+        return;
+    };
     let tmp = cache_path.with_extension("tmp");
     if std::fs::write(&tmp, &bytes).is_ok() {
         let _ = std::fs::rename(&tmp, cache_path);
@@ -105,7 +116,11 @@ mod tests {
     fn mismatched_fingerprint_is_a_miss() {
         let dir = tempfile::tempdir().unwrap();
         let cache_path = dir.path().join("cache.json");
-        write(&cache_path, Fingerprint(vec![("a".into(), 1, 2)]), &vec![1, 2, 3]);
+        write(
+            &cache_path,
+            Fingerprint(vec![("a".into(), 1, 2)]),
+            &vec![1, 2, 3],
+        );
         let got: Option<Vec<i32>> = try_read(&cache_path, &Fingerprint(vec![("a".into(), 9, 9)]));
         assert_eq!(got, None);
     }

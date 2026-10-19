@@ -13,7 +13,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use archon_distro::Distro;
 
 use crate::commands::install;
@@ -25,7 +25,12 @@ use crate::{color, ui};
 /// pacman-specific), so this delegates straight to the native tool and
 /// lets it say so if a name isn't installed — same reasoning as
 /// `install::run_foreign_distro`.
-fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
+fn run_foreign_distro(
+    distro: &Distro,
+    packages: &[String],
+    dry_run: bool,
+    yes: bool,
+) -> Result<()> {
     let Some(backend) = distro.backend() else {
         bail!(
             "no supported package manager detected for {distro}. archon currently supports \
@@ -33,7 +38,13 @@ fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: 
         );
     };
     let argv = backend.remove_argv(packages, yes);
-    println!("{}", color::dim(&format!("Detected {distro} — delegating to {}", backend.name())));
+    println!(
+        "{}",
+        color::dim(&format!(
+            "Detected {distro} — delegating to {}",
+            backend.name()
+        ))
+    );
     install::run_native_tool(backend.as_ref(), &argv, dry_run)
 }
 
@@ -74,16 +85,30 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
             missing.join(", ")
         );
     }
-    spinner.success(format!("{} package(s) installed, ready to remove", found.len()));
+    spinner.success(format!(
+        "{} package(s) installed, ready to remove",
+        found.len()
+    ));
 
-    println!("{} {}\n", color::bold("▶ Remove plan —"), color::dim(&format!("{} package(s)", found.len())));
+    println!(
+        "{} {}\n",
+        color::bold("▶ Remove plan —"),
+        color::dim(&format!("{} package(s)", found.len()))
+    );
     let name_width = found.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
     for (name, version) in &found {
-        println!("  {:<name_width$}  {}", name, color::dim(version), name_width = name_width);
+        println!(
+            "  {:<name_width$}  {}",
+            name,
+            color::dim(version),
+            name_width = name_width
+        );
     }
     println!(
         "\n{}",
-        color::dim("pacman -Rs also removes any now-orphaned dependencies — nothing else on your system.")
+        color::dim(
+            "pacman -Rs also removes any now-orphaned dependencies — nothing else on your system."
+        )
     );
 
     if dry_run {

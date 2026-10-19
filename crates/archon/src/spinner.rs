@@ -22,7 +22,15 @@ fn candy_frames() -> &'static [String] {
         (0..WIDTH)
             .map(|i| {
                 (0..WIDTH)
-                    .map(|j| if j < i { ' ' } else if j == i { 'C' } else { '.' })
+                    .map(|j| {
+                        if j < i {
+                            ' '
+                        } else if j == i {
+                            'C'
+                        } else {
+                            '.'
+                        }
+                    })
                     .collect()
             })
             .collect()

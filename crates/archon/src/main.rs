@@ -8,8 +8,8 @@
 //! - `--dry-run` stops after printing the plan, guaranteed side-effect free.
 
 mod color;
-mod correction;
 mod commands;
+mod correction;
 mod pgp;
 mod search;
 mod spinner;
@@ -100,7 +100,11 @@ fn main() -> anyhow::Result<()> {
             report,
         } => commands::install::run(&packages, dry_run, yes, report),
         Command::Plan { packages } => commands::install::run(&packages, true, false, false),
-        Command::Remove { packages, dry_run, yes } => commands::remove::run(&packages, dry_run, yes),
+        Command::Remove {
+            packages,
+            dry_run,
+            yes,
+        } => commands::remove::run(&packages, dry_run, yes),
         Command::Build { dir, report } => {
             commands::build::run(&commands::build::parse_dir(&dir), report)
         }

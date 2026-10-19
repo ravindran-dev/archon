@@ -69,7 +69,9 @@ impl AurPackage {
         };
         let mut build_dependencies = parse_deps(&self.make_depends)?;
         for dependency in parse_deps(&self.check_depends)? {
-            if !build_dependencies.contains(&dependency) { build_dependencies.push(dependency); }
+            if !build_dependencies.contains(&dependency) {
+                build_dependencies.push(dependency);
+            }
         }
         Ok(PackageMeta {
             package_base: Some(self.package_base.clone()),
@@ -92,22 +94,38 @@ mod tests {
 
     #[test]
     fn checkdepends_are_required_for_default_makepkg_checks() {
-        let pkg: AurPackage = serde_json::from_str(r#"{
+        let pkg: AurPackage = serde_json::from_str(
+            r#"{
             "Name":"scanner", "Version":"1-1", "PackageBase":"scanner",
             "MakeDepends":["cmake"], "CheckDepends":["pytest>=8", "cmake"]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let meta = pkg.into_meta().unwrap();
-        assert_eq!(meta.make_depends.iter().map(ToString::to_string).collect::<Vec<_>>(),
-                   ["cmake", "pytest>=8"]);
+        assert_eq!(
+            meta.make_depends
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["cmake", "pytest>=8"]
+        );
     }
 
     #[test]
     fn split_package_metadata_preserves_its_build_base() {
-        let pkg: AurPackage = serde_json::from_str(r#"{
+        let pkg: AurPackage = serde_json::from_str(
+            r#"{
             "Name":"suite-cli", "Version":"1-1", "PackageBase":"suite"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let metadata = serde_json::to_value(pkg.into_meta().unwrap()).unwrap();
-        assert_eq!(metadata.get("package_base").and_then(|value| value.as_str()), Some("suite"));
+        assert_eq!(
+            metadata
+                .get("package_base")
+                .and_then(|value| value.as_str()),
+            Some("suite")
+        );
     }
 
     #[test]

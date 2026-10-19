@@ -121,7 +121,10 @@ impl SyncDb {
         let mut provides_index: HashMap<String, Vec<String>> = HashMap::new();
         for pkg in &packages {
             for provide in &pkg.provides {
-                provides_index.entry(provide.name.clone()).or_default().push(pkg.name.clone());
+                provides_index
+                    .entry(provide.name.clone())
+                    .or_default()
+                    .push(pkg.name.clone());
             }
         }
         for v in provides_index.values_mut() {
@@ -129,7 +132,11 @@ impl SyncDb {
             v.dedup();
         }
         let packages = packages.into_iter().map(|p| (p.name.clone(), p)).collect();
-        Self { name, packages, provides_index }
+        Self {
+            name,
+            packages,
+            provides_index,
+        }
     }
 
     pub fn packages(&self) -> impl Iterator<Item = &PackageMeta> {
@@ -200,7 +207,10 @@ mod tests {
     fn parses_plain_tar() {
         let tarball = fixture_tar(&[
             ("foo-1.0-1", &desc("foo", "1.0-1", "%DEPENDS%\nbar\n")),
-            ("bar-2.0-1", &desc("bar", "2.0-1", "%PROVIDES%\nlibbar=2.0\n")),
+            (
+                "bar-2.0-1",
+                &desc("bar", "2.0-1", "%PROVIDES%\nlibbar=2.0\n"),
+            ),
         ]);
         let db = SyncDb::from_tar_bytes("core", &tarball).unwrap();
         assert_eq!(db.len(), 2);

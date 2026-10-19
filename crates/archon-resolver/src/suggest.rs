@@ -19,12 +19,12 @@ pub struct Suggestion {
 pub fn suggest(query: &str, candidates: &[PackageRef], max_results: usize) -> Vec<Suggestion> {
     let query_len = query.chars().count();
     let query_lower = query.to_lowercase();
-    
+
     let mut suggestions: Vec<Suggestion> = candidates
         .iter()
         .filter(|c| {
             let c_len = c.name.chars().count();
-            let delta = if c_len > query_len { c_len - query_len } else { query_len - c_len };
+            let delta = c_len.abs_diff(query_len);
             delta <= MAX_LENGTH_DELTA
         })
         .filter_map(|c| {
@@ -39,8 +39,12 @@ pub fn suggest(query: &str, candidates: &[PackageRef], max_results: usize) -> Ve
             }
         })
         .collect();
-        
-    suggestions.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+
+    suggestions.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     suggestions.truncate(max_results);
     suggestions
 }

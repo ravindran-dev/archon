@@ -23,7 +23,8 @@ pub fn archon_bin() -> &'static str {
 fn arch_os_release_path() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("archon-test-os-release-{}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("archon-test-os-release-{}", std::process::id()));
         std::fs::write(&path, "ID=arch\n").expect("write fixture os-release");
         path
     })
@@ -61,7 +62,11 @@ pub fn fixture_sync_dir(pkgs: &[FixturePkg]) -> (tempfile::TempDir, PathBuf) {
         header.set_mode(0o644);
         header.set_cksum();
         builder
-            .append_data(&mut header, format!("{}-{}/desc", pkg.name, pkg.version), desc.as_bytes())
+            .append_data(
+                &mut header,
+                format!("{}-{}/desc", pkg.name, pkg.version),
+                desc.as_bytes(),
+            )
             .expect("append fixture package");
     }
     let bytes = builder.into_inner().expect("finish tar");
@@ -131,7 +136,10 @@ pub fn run_archon(args: &[&str], envs: &[(&str, &str)]) -> Output {
 
 pub fn run_archon_interactive(args: &[&str], envs: &[(&str, &str)], input: &str) -> Output {
     let mut cmd = Command::new(archon_bin());
-    cmd.args(args).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     cmd.env("ARCHON_OS_RELEASE", arch_os_release_path());
     cmd.env("ARCHON_FORCE_INTERACTIVE", "1");
     cmd.env("ARCHON_APT_LISTS_DIR", "/tmp/archon-empty-apt-lists");
@@ -142,7 +150,9 @@ pub fn run_archon_interactive(args: &[&str], envs: &[(&str, &str)], input: &str)
     let mut child = cmd.spawn().expect("failed to spawn archon");
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
-        stdin.write_all(input.as_bytes()).expect("failed to write to stdin");
+        stdin
+            .write_all(input.as_bytes())
+            .expect("failed to write to stdin");
     }
     let output = child.wait_with_output().expect("failed to wait for archon");
     Output {
@@ -174,7 +184,10 @@ pub fn fixture_local_dir(pkgs: &[FixturePkg]) -> (tempfile::TempDir, PathBuf) {
         std::fs::create_dir_all(&pkg_dir).expect("create fixture pkg dir");
         std::fs::write(
             pkg_dir.join("desc"),
-            format!("%NAME%\n{}\n\n%VERSION%\n{}\n\n%BASE%\n{}\n", pkg.name, pkg.version, pkg.name),
+            format!(
+                "%NAME%\n{}\n\n%VERSION%\n{}\n\n%BASE%\n{}\n",
+                pkg.name, pkg.version, pkg.name
+            ),
         )
         .expect("write fixture desc");
     }

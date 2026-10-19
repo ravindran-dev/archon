@@ -1,0 +1,101 @@
+    Checking rustls-webpki v0.103.13
+    Checking archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+    Checking aya-log v0.3.0
+    Checking env_logger v0.11.11
+    Checking archon-monitor v0.2.0 (/home/ravi/archon/crates/archon-monitor)
+    Checking archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+    Checking archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+    Checking rustls v0.23.41
+error: manual absolute difference pattern without using `abs_diff`
+  --> crates/archon-resolver/src/suggest.rs:27:25
+   |
+27 |             let delta = if c_len > query_len { c_len - query_len } else { query_len - c_len };
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with `abs_diff`: `c_len.abs_diff(query_len)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_abs_diff
+   = note: `-D clippy::manual-abs-diff` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_abs_diff)]`
+
+error: large size difference between variants
+  --> crates/archon-resolver/src/search.rs:10:1
+   |
+10 | / enum Task {
+11 | |     Need(Dependency, String),
+   | |     ------------------------ the second-largest variant contains at least 144 bytes
+12 | |     Select(Dependency, String, PackageMeta),
+   | |     --------------------------------------- the largest variant contains at least 400 bytes
+13 | | }
+   | |_^ the entire enum is at least 400 bytes
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#large_enum_variant
+   = note: `-D clippy::large-enum-variant` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::large_enum_variant)]`
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+   |
+12 -     Select(Dependency, String, PackageMeta),
+12 +     Select(Dependency, String, Box<PackageMeta>),
+   |
+
+error: could not compile `archon-resolver` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: this `if` statement can be collapsed
+  --> crates/archon-repo/src/deb_index.rs:49:17
+   |
+49 | /                 if let Some(pkg) = current_pkg.take() {
+50 | |                     if let Ok(meta) = Self::build_meta(pkg) {
+51 | |                         packages.push(meta);
+52 | |                     }
+53 | |                 }
+   | |_________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_if
+   = note: `-D clippy::collapsible-if` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+   |
+49 ~                 if let Some(pkg) = current_pkg.take()
+50 ~                     && let Ok(meta) = Self::build_meta(pkg) {
+51 |                         packages.push(meta);
+52 ~                     }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/archon-repo/src/deb_index.rs:72:9
+   |
+72 | /         if let Some(pkg) = current_pkg {
+73 | |             if let Ok(meta) = Self::build_meta(pkg) {
+74 | |                 packages.push(meta);
+75 | |             }
+76 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+72 ~         if let Some(pkg) = current_pkg
+73 ~             && let Ok(meta) = Self::build_meta(pkg) {
+74 |                 packages.push(meta);
+75 ~             }
+   |
+
+error: this `if` statement can be collapsed
+   --> crates/archon-repo/src/deb_index.rs:141:13
+    |
+141 | /             if pkg.satisfies(&Dependency {
+142 | |                 name: dep_name.to_string(),
+143 | |                 constraint: None,
+144 | |                 alternatives: Vec::new(),
+...   |
+149 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+145 ~             }).map_err(|error| ProviderError::Backend(Box::new(error)))?
+146 ~                 && seen.insert(pkg.name.clone()) {
+147 |                     out.push(pkg.clone());
+148 ~                 }
+    |
+
+error: could not compile `archon-repo` (lib) due to 3 previous errors

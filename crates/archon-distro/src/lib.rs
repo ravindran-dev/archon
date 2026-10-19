@@ -14,8 +14,8 @@
 mod backend;
 
 pub use backend::{
-    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, NixBackend, PacmanBackend, XbpsBackend,
-    ZypperBackend,
+    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, NixBackend, PacmanBackend,
+    XbpsBackend, ZypperBackend,
 };
 
 use std::path::{Path, PathBuf};
@@ -88,7 +88,11 @@ impl Distro {
                 return distro;
             }
         }
-        Distro::Unknown(if id.is_empty() { "unknown".to_string() } else { id })
+        Distro::Unknown(if id.is_empty() {
+            "unknown".to_string()
+        } else {
+            id
+        })
     }
 
     pub fn is_arch(&self) -> bool {
@@ -149,39 +153,60 @@ mod tests {
 
     #[test]
     fn recognized_id_precedes_id_like() {
-        assert_eq!(Distro::from_os_release("ID=ubuntu\nID_LIKE=arch\n"), Distro::Debian);
+        assert_eq!(
+            Distro::from_os_release("ID=ubuntu\nID_LIKE=arch\n"),
+            Distro::Debian
+        );
     }
 
     #[test]
     fn id_like_uses_declared_order() {
-        assert_eq!(Distro::from_os_release("ID=custom\nID_LIKE=\"debian arch\"\n"), Distro::Debian);
+        assert_eq!(
+            Distro::from_os_release("ID=custom\nID_LIKE=\"debian arch\"\n"),
+            Distro::Debian
+        );
     }
 
     #[test]
     fn detects_arch_by_id() {
-        assert_eq!(Distro::from_os_release("ID=arch\nNAME=\"Arch Linux\"\n"), Distro::Arch);
+        assert_eq!(
+            Distro::from_os_release("ID=arch\nNAME=\"Arch Linux\"\n"),
+            Distro::Arch
+        );
     }
 
     #[test]
     fn detects_ubuntu_by_id() {
-        assert_eq!(Distro::from_os_release("ID=ubuntu\nID_LIKE=debian\n"), Distro::Debian);
+        assert_eq!(
+            Distro::from_os_release("ID=ubuntu\nID_LIKE=debian\n"),
+            Distro::Debian
+        );
     }
 
     #[test]
     fn detects_debian_derivative_by_id_like() {
         // Pop!_OS: its own ID, but ID_LIKE names its real upstream family.
-        assert_eq!(Distro::from_os_release("ID=pop\nID_LIKE=\"ubuntu debian\"\n"), Distro::Debian);
+        assert_eq!(
+            Distro::from_os_release("ID=pop\nID_LIKE=\"ubuntu debian\"\n"),
+            Distro::Debian
+        );
     }
 
     #[test]
     fn detects_arch_derivative_by_id_like() {
-        assert_eq!(Distro::from_os_release("ID=manjaro\nID_LIKE=arch\n"), Distro::Arch);
+        assert_eq!(
+            Distro::from_os_release("ID=manjaro\nID_LIKE=arch\n"),
+            Distro::Arch
+        );
     }
 
     #[test]
     fn detects_fedora_family() {
         assert_eq!(Distro::from_os_release("ID=fedora\n"), Distro::Fedora);
-        assert_eq!(Distro::from_os_release("ID=rocky\nID_LIKE=\"rhel centos fedora\"\n"), Distro::Fedora);
+        assert_eq!(
+            Distro::from_os_release("ID=rocky\nID_LIKE=\"rhel centos fedora\"\n"),
+            Distro::Fedora
+        );
     }
 
     #[test]
@@ -198,7 +223,10 @@ mod tests {
             Distro::from_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n"),
             Distro::Suse
         );
-        assert_eq!(Distro::from_os_release("ID=sles\nID_LIKE=suse\n"), Distro::Suse);
+        assert_eq!(
+            Distro::from_os_release("ID=sles\nID_LIKE=suse\n"),
+            Distro::Suse
+        );
         // Older/hypothetical bare compound ID with no ID_LIKE at all.
         assert_eq!(Distro::from_os_release("ID=opensuse-leap\n"), Distro::Suse);
     }

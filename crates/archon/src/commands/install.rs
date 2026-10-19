@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use archon_aur::AurClient;
 use archon_distro::Distro;
 use archon_monitor::{BuildReport, EventStore, FlaggedEvent, Monitor, Policy};
@@ -86,7 +86,8 @@ pub(crate) fn cache_dir() -> PathBuf {
 /// (missing dir, permissions) just falls back to showing everything —
 /// the same as if this lookup didn't exist at all.
 fn load_local_db() -> Option<archon_repo::LocalDb> {
-    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json")).ok()
+    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json"))
+        .ok()
 }
 
 /// Non-Arch path. There's no archon-computed dependency graph here to show
@@ -96,7 +97,13 @@ fn load_local_db() -> Option<archon_repo::LocalDb> {
 /// yourself. `--yes` still means something: it maps to the native tool's
 /// own assume-yes flag, the same way `--yes` on Arch skips archon's prompt
 /// without touching pacman's.
-fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+fn run_foreign_distro(
+    distro: &Distro,
+    packages: &[String],
+    dry_run: bool,
+    yes: bool,
+    report: bool,
+) -> Result<()> {
     if report {
         println!(
             "{}",
@@ -130,7 +137,11 @@ fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: 
 /// under `sudo` only when the backend says it needs root — `nix-env`
 /// notably does not: it installs into the *invoking user's* profile, and
 /// sudo would silently redirect the install into root's profile instead.
-pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[String], dry_run: bool) -> Result<()> {
+pub(crate) fn run_native_tool(
+    backend: &dyn archon_distro::Backend,
+    argv: &[String],
+    dry_run: bool,
+) -> Result<()> {
     let display = if backend.needs_root() {
         format!("sudo {}", argv.join(" "))
     } else {
@@ -149,9 +160,12 @@ pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[Stri
         c.args(&argv[1..]);
         c
     };
-    let status = cmd
-        .status()
-        .with_context(|| format!("failed to execute {} (is it installed and in PATH?)", backend.name()))?;
+    let status = cmd.status().with_context(|| {
+        format!(
+            "failed to execute {} (is it installed and in PATH?)",
+            backend.name()
+        )
+    })?;
     if !status.success() {
         bail!("{} exited with {status}", backend.name());
     }
@@ -159,7 +173,13 @@ pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[Stri
 }
 
 pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
-    run_with_history(packages, dry_run, yes, report, &std::collections::HashMap::new())
+    run_with_history(
+        packages,
+        dry_run,
+        yes,
+        report,
+        &std::collections::HashMap::new(),
+    )
 }
 
 fn run_with_history(
@@ -177,13 +197,17 @@ fn run_with_history(
     let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
     let sync_dir = sync_dir();
     let repo_cache = cache_dir().join("sync-db.json");
-    let official = match OfficialRepos::load_cached(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER, &repo_cache)
-        .with_context(|| {
-            format!(
-                "failed to load official repo databases from {sync_dir} \
+    let official = match OfficialRepos::load_cached(
+        Path::new(&sync_dir),
+        archon_repo::DEFAULT_REPO_ORDER,
+        &repo_cache,
+    )
+    .with_context(|| {
+        format!(
+            "failed to load official repo databases from {sync_dir} \
                  (run `sudo pacman -Sy` if you've never synced)"
-            )
-        }) {
+        )
+    }) {
         Ok(v) => v,
         Err(e) => {
             spinner.fail("resolution failed");
@@ -198,7 +222,9 @@ fn run_with_history(
         .unwrap_or_default();
 
     let providers: Vec<&dyn PackageProvider> = vec![&official, &aur];
-    let resolve_result = Resolver::new(providers).prefer_installed(&installed_names).resolve(packages);
+    let resolve_result = Resolver::new(providers)
+        .prefer_installed(&installed_names)
+        .resolve(packages);
     let plan = match resolve_result {
         Ok(v) => v,
         Err(ResolveError::NotFound { name, required_by }) => {
@@ -208,17 +234,22 @@ fn run_with_history(
                 if let Some(p) = packages.iter().position(|x| *x == name) {
                     pos = p;
                 }
-                
+
                 let mut current_chain = crate::correction::chain(
-                    correction_history.get(&pos).map(Vec::as_slice).unwrap_or_default(), &name
-                ).map_err(anyhow::Error::msg)?;
+                    correction_history
+                        .get(&pos)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default(),
+                    &name,
+                )
+                .map_err(anyhow::Error::msg)?;
 
                 if let Some(corrected) = handle_typo_correction(&official, &aur, &name)? {
                     current_chain.push(corrected.clone());
-                    
+
                     let mut new_history = correction_history.clone();
                     new_history.insert(pos, current_chain);
-                    
+
                     let mut new_packages = packages.to_vec();
                     if pos < new_packages.len() {
                         new_packages[pos] = corrected;
@@ -226,7 +257,12 @@ fn run_with_history(
                     return run_with_history(&new_packages, dry_run, yes, report, &new_history);
                 }
             }
-            return Err(not_found_with_suggestions(&official, &aur, &name, &required_by));
+            return Err(not_found_with_suggestions(
+                &official,
+                &aur,
+                &name,
+                &required_by,
+            ));
         }
         Err(e) => {
             spinner.fail("resolution failed");
@@ -280,9 +316,16 @@ fn run_with_history(
 /// discover that. Best-effort — if the AUR search itself fails (offline,
 /// AUR down), suggestions from official repos still show, and the error
 /// just falls back to the plain "not found" message otherwise.
-fn not_found_with_suggestions(official: &OfficialRepos, aur: &AurClient, name: &str, required_by: &str) -> anyhow::Error {
+fn not_found_with_suggestions(
+    official: &OfficialRepos,
+    aur: &AurClient,
+    name: &str,
+    required_by: &str,
+) -> anyhow::Error {
     let hits = crate::search::find(official, aur, name);
-    let mut msg = format!("package '{name}' not found in official repos or the AUR (required by {required_by})");
+    let mut msg = format!(
+        "package '{name}' not found in official repos or the AUR (required by {required_by})"
+    );
     if !hits.is_empty() {
         msg.push_str("\n\nDid you mean:\n");
         for hit in hits.iter().take(8) {
@@ -294,41 +337,63 @@ fn not_found_with_suggestions(official: &OfficialRepos, aur: &AurClient, name: &
         }
         msg.push_str(&format!("\nRun `archon search {name}` to see all matches."));
     } else {
-        msg.push_str(&format!("\n\nNo similarly-named packages found either — try `archon search {name}`."));
+        msg.push_str(&format!(
+            "\n\nNo similarly-named packages found either — try `archon search {name}`."
+        ));
     }
     anyhow::anyhow!(msg)
 }
 
-fn handle_typo_correction(official: &OfficialRepos, aur: &AurClient, typo: &str) -> Result<Option<String>> {
-    use archon_resolver::suggest::{suggest, PackageRef};
+fn handle_typo_correction(
+    official: &OfficialRepos,
+    aur: &AurClient,
+    typo: &str,
+) -> Result<Option<String>> {
+    use archon_resolver::suggest::{PackageRef, suggest};
     use std::io::IsTerminal;
-    
+
     let mut candidates = Vec::new();
-    
+
     // 1. Official repos
     for (name, repo) in official.all_package_names() {
-        candidates.push(PackageRef { name, source: "pacman".to_string(), repo: Some(repo) });
+        candidates.push(PackageRef {
+            name,
+            source: "pacman".to_string(),
+            repo: Some(repo),
+        });
     }
-    
+
     // 2. AUR (fetch by prefix if long enough)
     let prefix = crate::correction::search_prefix(typo);
     if let Ok(aur_hits) = aur.search_by_name(prefix) {
         for hit in aur_hits {
-            candidates.push(PackageRef { name: hit.name, source: "aur".to_string(), repo: None });
+            candidates.push(PackageRef {
+                name: hit.name,
+                source: "aur".to_string(),
+                repo: None,
+            });
         }
     }
     let suggs = suggest(typo, &candidates, 5);
     if suggs.is_empty() {
         return Ok(None);
     }
-    
-    let is_tty = std::io::stdin().is_terminal() || std::env::var("ARCHON_FORCE_INTERACTIVE").is_ok();
+
+    let is_tty =
+        std::io::stdin().is_terminal() || std::env::var("ARCHON_FORCE_INTERACTIVE").is_ok();
     if !is_tty {
-        let names = suggs.iter().map(|s| s.pkg.name.as_str()).collect::<Vec<_>>().join(", ");
-        eprintln!("package not found, did you mean: {}? re-run interactively or with the exact name", names);
+        let names = suggs
+            .iter()
+            .map(|s| s.pkg.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!(
+            "package not found, did you mean: {}? re-run interactively or with the exact name",
+            names
+        );
         std::process::exit(1);
     }
-    
+
     println!("\nPackage '{}' not found. Did you mean:", typo);
     for (i, s) in suggs.iter().enumerate() {
         let repo_str = match &s.pkg.repo {
@@ -337,35 +402,42 @@ fn handle_typo_correction(official: &OfficialRepos, aur: &AurClient, typo: &str)
         };
         println!("  {}) {} ({})", i + 1, s.pkg.name, repo_str);
     }
-    
+
     use std::io::Write;
     let mut attempts = 0;
     while attempts < 3 {
         print!("\nInstall [1]? (Enter to accept, or type a number, or 'n' to cancel): ");
         std::io::stdout().flush().ok();
-        
+
         let mut input = String::new();
         if std::io::stdin().read_line(&mut input).is_ok() {
             let input = input.trim();
-            if input.eq_ignore_ascii_case("n") || input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("cancel") {
+            if input.eq_ignore_ascii_case("n")
+                || input.eq_ignore_ascii_case("q")
+                || input.eq_ignore_ascii_case("cancel")
+            {
                 println!("Cancelled.");
                 std::process::exit(130);
             }
             if input.is_empty() {
                 return Ok(Some(suggs[0].pkg.name.clone()));
             }
-            if let Ok(idx) = input.parse::<usize>() {
-                if idx > 0 && idx <= suggs.len() {
-                    return Ok(Some(suggs[idx - 1].pkg.name.clone()));
-                }
+            if let Ok(idx) = input.parse::<usize>()
+                && idx > 0
+                && idx <= suggs.len()
+            {
+                return Ok(Some(suggs[idx - 1].pkg.name.clone()));
             }
-            println!("Invalid selection. Please enter a number between 1 and {}, or 'n' to cancel.", suggs.len());
+            println!(
+                "Invalid selection. Please enter a number between 1 and {}, or 'n' to cancel.",
+                suggs.len()
+            );
         } else {
             break;
         }
         attempts += 1;
     }
-    
+
     println!("Too many invalid attempts. Aborting.");
     std::process::exit(1);
 }
@@ -392,7 +464,10 @@ fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb
         println!("{}", color::dim("all official packages already up to date"));
         return Ok(());
     }
-    println!("{}", color::dim(&format!("pacman -S --needed {}", names.join(" "))));
+    println!(
+        "{}",
+        color::dim(&format!("pacman -S --needed {}", names.join(" ")))
+    );
     let status = Command::new("sudo")
         .arg("pacman")
         .arg("-S")
@@ -421,14 +496,24 @@ fn ensure_bwrap() -> Result<()> {
 /// user-visible working state, not disposable scratch space.
 fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> Result<PathBuf> {
     let base = pkg.meta.build_base();
-    if base.is_empty() || base == "." || base == ".." || base.starts_with('-')
-        || !base.bytes().all(|c| c.is_ascii_alphanumeric() || b"@._+-".contains(&c))
+    if base.is_empty()
+        || base == "."
+        || base == ".."
+        || base.starts_with('-')
+        || !base
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"@._+-".contains(&c))
     {
         bail!("invalid AUR package base {base:?}");
     }
     let dest = build_root.join(base);
     if dest.exists() {
-        println!("{} {} {}", color::yellow("↺"), pkg.meta.name, color::dim("already cloned"));
+        println!(
+            "{} {} {}",
+            color::yellow("↺"),
+            pkg.meta.name,
+            color::dim("already cloned")
+        );
         return Ok(dest);
     }
     let url = aur.clone_url_for(&pkg.meta.name).with_context(|| {
@@ -461,7 +546,11 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
 /// for `makepkg`'s normally very chatty output — captured in the
 /// background (see [`subprocess::OutputCapture`]) and only printed if a
 /// stage actually fails.
-pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_dir: &Path, pkg_name: &str) -> Result<()> {
+pub(crate) fn build_in_sandbox(
+    runner: &SandboxRunner,
+    pkg_dir: &Path,
+    pkg_name: &str,
+) -> Result<()> {
     crate::pgp::import_build_keys(pkg_dir);
     for stage in [BuildStage::Fetch, BuildStage::Build] {
         let label = match stage {
@@ -520,7 +609,10 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
 fn aur_build_groups(pkgs: &[PlannedPackage]) -> Vec<Vec<&PlannedPackage>> {
     let mut groups: Vec<Vec<&PlannedPackage>> = Vec::new();
     for pkg in pkgs {
-        if let Some(group) = groups.iter_mut().find(|group| group[0].meta.build_base() == pkg.meta.build_base()) {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|group| group[0].meta.build_base() == pkg.meta.build_base())
+        {
             group.push(pkg);
         } else {
             groups.push(vec![pkg]);
@@ -534,8 +626,12 @@ fn built_group_files(dest: &Path, group: &[&PlannedPackage]) -> Result<Vec<PathB
     for pkg in group {
         let files = find_package_files(dest, &pkg.meta.name)?;
         if files.len() != 1 {
-            bail!("expected exactly one built package archive for {} in {}, found {}; refusing installation of missing or ambiguous output",
-                pkg.meta.name, dest.display(), files.len());
+            bail!(
+                "expected exactly one built package archive for {} in {}, found {}; refusing installation of missing or ambiguous output",
+                pkg.meta.name,
+                dest.display(),
+                files.len()
+            );
         }
         outputs.extend(files);
     }
@@ -601,12 +697,21 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
     // so on a real system this went unnoticed until measured: caching
     // appeared to do nothing at all, because it never actually happened).
     if let Some(cache_root) = build_root.parent() {
-        ensure_owned(cache_root, privileges.uid, privileges.gid)
-            .with_context(|| format!("failed to chown {} to the target user", cache_root.display()))?;
+        ensure_owned(cache_root, privileges.uid, privileges.gid).with_context(|| {
+            format!(
+                "failed to chown {} to the target user",
+                cache_root.display()
+            )
+        })?;
     }
-    ensure_owned(&build_root, privileges.uid, privileges.gid)
-        .with_context(|| format!("failed to chown {} to the target user", build_root.display()))?;
-    let store = EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
+    ensure_owned(&build_root, privileges.uid, privileges.gid).with_context(|| {
+        format!(
+            "failed to chown {} to the target user",
+            build_root.display()
+        )
+    })?;
+    let store =
+        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
 
     for group in aur_build_groups(pkgs) {
         let pkg = group[0];
@@ -615,11 +720,20 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
         // to run as the dropped-to user needs to write into this tree.
         ensure_owned_recursive(&dest, privileges.uid, privileges.gid)
             .with_context(|| format!("failed to chown {} to the target user", dest.display()))?;
-        let report = run_monitored_build(&mut monitor, &store, &dest, pkg.meta.build_base(), &privileges)?;
+        let report = run_monitored_build(
+            &mut monitor,
+            &store,
+            &dest,
+            pkg.meta.build_base(),
+            &privileges,
+        )?;
 
         ui::print_report(&report);
         if !report.is_clean() {
-            println!("{} not installed — see flags above", color::red(&pkg.meta.name));
+            println!(
+                "{} not installed — see flags above",
+                color::red(&pkg.meta.name)
+            );
             continue;
         }
 
@@ -628,7 +742,14 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
             println!("skipped — package left at {}", dest.display());
             continue;
         }
-        println!("==> pacman -U {}", pkg_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(" "));
+        println!(
+            "==> pacman -U {}",
+            pkg_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
         let status = Command::new("pacman")
             .arg("-U")
             .args(&pkg_files)
@@ -661,7 +782,8 @@ impl BuildCgroup {
     fn create(pkg_name: &str) -> Result<Self> {
         std::fs::create_dir_all(CGROUP_ROOT)
             .context("failed to create /sys/fs/cgroup/archon (cgroups v2 required)")?;
-        let path = PathBuf::from(CGROUP_ROOT).join(format!("build-{pkg_name}-{}", std::process::id()));
+        let path =
+            PathBuf::from(CGROUP_ROOT).join(format!("build-{pkg_name}-{}", std::process::id()));
         std::fs::create_dir(&path)
             .with_context(|| format!("failed to create cgroup {}", path.display()))?;
         Ok(Self { path })
@@ -701,8 +823,12 @@ pub(crate) fn run_monitored_build(
     crate::pgp::import_build_keys(dest);
     let gnupg_home = dest.join(".gnupg");
     if gnupg_home.exists() {
-        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid)
-            .with_context(|| format!("failed to chown {} to the target user", gnupg_home.display()))?;
+        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid).with_context(|| {
+            format!(
+                "failed to chown {} to the target user",
+                gnupg_home.display()
+            )
+        })?;
     }
 
     let allowed_ips = srcinfo::resolve_allowed_ips(dest);
@@ -744,7 +870,14 @@ pub(crate) fn run_monitored_build(
             if let Some(status) = child.try_wait().context("failed to poll build process")? {
                 break status;
             }
-            drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
+            drain_and_record(
+                monitor,
+                store,
+                &policy,
+                build_id,
+                &mut total_events,
+                &mut flagged,
+            )?;
             monitor.flush_logs();
             std::thread::sleep(Duration::from_millis(20));
         };
@@ -755,7 +888,14 @@ pub(crate) fn run_monitored_build(
         // immediately, giving the kernel a beat before the last read
         // costs nothing here and removes any doubt.
         std::thread::sleep(Duration::from_millis(100));
-        drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
+        drain_and_record(
+            monitor,
+            store,
+            &policy,
+            build_id,
+            &mut total_events,
+            &mut flagged,
+        )?;
         let output = capture.finish();
 
         if !status.success() {
@@ -763,10 +903,16 @@ pub(crate) fn run_monitored_build(
             subprocess::print_if_nonempty(&output);
             bail!("{stage:?} stage failed for {pkg_name}: makepkg exited with {status}");
         }
-        spinner.success(format!("{pkg_name} ({stage:?}) — {total_events} events so far"));
+        spinner.success(format!(
+            "{pkg_name} ({stage:?}) — {total_events} events so far"
+        ));
     }
 
-    Ok(BuildReport { package: pkg_name.to_string(), total_events, flagged })
+    Ok(BuildReport {
+        package: pkg_name.to_string(),
+        total_events,
+        flagged,
+    })
 }
 
 fn drain_and_record(
@@ -777,7 +923,10 @@ fn drain_and_record(
     total_events: &mut usize,
     flagged: &mut Vec<FlaggedEvent>,
 ) -> Result<()> {
-    for event in monitor.drain_events().context("failed to read monitor events")? {
+    for event in monitor
+        .drain_events()
+        .context("failed to read monitor events")?
+    {
         *total_events += 1;
         let reason = policy.evaluate(&event);
         store
@@ -792,7 +941,9 @@ fn drain_and_record(
 
 pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))? {
+    for entry in
+        std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))?
+    {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -810,9 +961,14 @@ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<Path
                 .output()
                 .context("failed to query built package identity with pacman -Qp")?;
             if !identity.status.success() {
-                bail!("cannot read built package {}: {}", entry.path().display(), String::from_utf8_lossy(&identity.stderr));
+                bail!(
+                    "cannot read built package {}: {}",
+                    entry.path().display(),
+                    String::from_utf8_lossy(&identity.stderr)
+                );
             }
-            let metadata = String::from_utf8(identity.stdout).context("invalid package identity output")?;
+            let metadata =
+                String::from_utf8(identity.stdout).context("invalid package identity output")?;
             if metadata.split_whitespace().next() == Some(pkg_name) {
                 files.push(entry.path());
             }
@@ -868,7 +1024,9 @@ pub(crate) fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
         .arg("passwd")
         .arg(uid.to_string())
         .output()
-        .context("failed to execute getent (needed to resolve the invoking user's home directory)")?;
+        .context(
+            "failed to execute getent (needed to resolve the invoking user's home directory)",
+        )?;
     if !output.status.success() {
         bail!("getent passwd {uid} found no matching user — cannot resolve a home directory");
     }

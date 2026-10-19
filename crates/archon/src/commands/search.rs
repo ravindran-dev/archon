@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use archon_aur::AurClient;
 use archon_distro::Distro;
 use archon_repo::OfficialRepos;
@@ -35,8 +35,12 @@ pub fn run(term: &str, all: bool) -> Result<()> {
     let spinner = Spinner::start(format!("Searching for {term}"));
     let sync_dir = install::sync_dir();
     let repo_cache = install::cache_dir().join("sync-db.json");
-    let official = match OfficialRepos::load_cached(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER, &repo_cache)
-        .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
+    let official = match OfficialRepos::load_cached(
+        Path::new(&sync_dir),
+        archon_repo::DEFAULT_REPO_ORDER,
+        &repo_cache,
+    )
+    .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
     {
         Ok(v) => v,
         Err(e) => {
@@ -53,14 +57,23 @@ pub fn run(term: &str, all: bool) -> Result<()> {
     }
     spinner.success(format!("{} match(es)", hits.len()));
 
-    let shown = if all { hits.len() } else { hits.len().min(DEFAULT_LIMIT) };
+    let shown = if all {
+        hits.len()
+    } else {
+        hits.len().min(DEFAULT_LIMIT)
+    };
     println!();
     for hit in &hits[..shown] {
         let tag = match hit.source {
             "official" => color::green("official"),
             _ => color::yellow("aur"),
         };
-        print!("  {} {} {}", tag, color::bold(&hit.name), color::dim(&hit.version));
+        print!(
+            "  {} {} {}",
+            tag,
+            color::bold(&hit.name),
+            color::dim(&hit.version)
+        );
         if hit.votes > 0 {
             print!(" {}", color::dim(&format!("({} votes)", hit.votes)));
         }
@@ -89,12 +102,23 @@ fn run_foreign_distro(distro: &Distro, term: &str) -> Result<()> {
         );
     };
     let argv = backend.search_argv(term);
-    println!("{}", color::dim(&format!("Detected {distro} — delegating to {}", backend.name())));
+    println!(
+        "{}",
+        color::dim(&format!(
+            "Detected {distro} — delegating to {}",
+            backend.name()
+        ))
+    );
     println!("{}\n", color::dim(&argv.join(" ")));
     let status = Command::new(&argv[0])
         .args(&argv[1..])
         .status()
-        .with_context(|| format!("failed to execute {} (is it installed and in PATH?)", backend.name()))?;
+        .with_context(|| {
+            format!(
+                "failed to execute {} (is it installed and in PATH?)",
+                backend.name()
+            )
+        })?;
     if !status.success() {
         bail!("{} exited with {status}", backend.name());
     }

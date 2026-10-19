@@ -1,6 +1,6 @@
 use archon_types::Version;
-use std::process::Command;
 use std::cmp::Ordering;
+use std::process::Command;
 
 fn main() {
     let pairs = vec![
@@ -39,14 +39,29 @@ fn main() {
         let rust_ord = rust_a.vercmp(&rust_b).expect("both versions use dpkg");
 
         let lt = Command::new("dpkg")
-            .arg("--compare-versions").arg(a).arg("lt").arg(b)
-            .status().unwrap().success();
+            .arg("--compare-versions")
+            .arg(a)
+            .arg("lt")
+            .arg(b)
+            .status()
+            .unwrap()
+            .success();
         let gt = Command::new("dpkg")
-            .arg("--compare-versions").arg(a).arg("gt").arg(b)
-            .status().unwrap().success();
+            .arg("--compare-versions")
+            .arg(a)
+            .arg("gt")
+            .arg(b)
+            .status()
+            .unwrap()
+            .success();
         let eq = Command::new("dpkg")
-            .arg("--compare-versions").arg(a).arg("eq").arg(b)
-            .status().unwrap().success();
+            .arg("--compare-versions")
+            .arg(a)
+            .arg("eq")
+            .arg(b)
+            .status()
+            .unwrap()
+            .success();
 
         let real_ord = if lt {
             Ordering::Less
@@ -59,7 +74,10 @@ fn main() {
         };
 
         if rust_ord != real_ord {
-            println!("MISMATCH: {} vs {} -> Rust says {:?}, dpkg says {:?}", a, b, rust_ord, real_ord);
+            println!(
+                "MISMATCH: {} vs {} -> Rust says {:?}, dpkg says {:?}",
+                a, b, rust_ord, real_ord
+            );
             mismatches += 1;
         } else {
             println!("MATCH: {} vs {} -> {:?}", a, b, real_ord);

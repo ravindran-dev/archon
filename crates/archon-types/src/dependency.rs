@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::{Version, VersionCompareError, VersionParseError, VersionBackend};
+use crate::version::{Version, VersionBackend, VersionCompareError, VersionParseError};
 
 /// A dependency specification as written in a PKGBUILD or repo database:
 /// `glibc`, `python>=3.11`, `libfoo.so=2-64`, ...
@@ -55,11 +55,14 @@ impl Dependency {
         Self::parse_with_backend(spec, VersionBackend::Alpm)
     }
 
-    pub fn parse_with_backend(spec: &str, backend: VersionBackend) -> Result<Self, DependencyParseError> {
+    pub fn parse_with_backend(
+        spec: &str,
+        backend: VersionBackend,
+    ) -> Result<Self, DependencyParseError> {
         // Strip optional-dependency description suffix (": description")
         // Some AUR packages include these in Depends[] by mistake.
         let spec = spec.split(": ").next().unwrap_or(spec).trim();
-        
+
         if spec.is_empty() {
             return Err(DependencyParseError::Empty);
         }
@@ -71,11 +74,14 @@ impl Dependency {
             ("=", ConstraintOp::Eq),
         ] {
             if let Some((name, ver)) = spec.split_once(token) {
-                let version =
-                    (match backend { VersionBackend::Alpm => Version::parse(ver), VersionBackend::Dpkg => Version::parse_dpkg(ver) }).map_err(|source| DependencyParseError::BadVersion {
-                        spec: spec.to_owned(),
-                        source,
-                    })?;
+                let version = (match backend {
+                    VersionBackend::Alpm => Version::parse(ver),
+                    VersionBackend::Dpkg => Version::parse_dpkg(ver),
+                })
+                .map_err(|source| DependencyParseError::BadVersion {
+                    spec: spec.to_owned(),
+                    source,
+                })?;
                 return Ok(Dependency {
                     name: name.to_owned(),
                     constraint: Some(VersionConstraint { op, version }),
@@ -181,7 +187,12 @@ mod tests {
 
     #[test]
     fn unconstrained_dep_accepts_anything() {
-        assert!(Dependency::parse("foo").unwrap().is_satisfied_by(&ver("0.0.1")).unwrap());
+        assert!(
+            Dependency::parse("foo")
+                .unwrap()
+                .is_satisfied_by(&ver("0.0.1"))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -218,22 +229,37 @@ mod tests {
     #[test]
     fn versioned_provide_satisfies_versioned_dep() {
         let dep = Dependency::parse("jdk>=17").unwrap();
-        assert!(dep.satisfied_by_provide(&Dependency::parse("jdk=21").unwrap()).unwrap());
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk=11").unwrap()).unwrap());
+        assert!(
+            dep.satisfied_by_provide(&Dependency::parse("jdk=21").unwrap())
+                .unwrap()
+        );
+        assert!(
+            !dep.satisfied_by_provide(&Dependency::parse("jdk=11").unwrap())
+                .unwrap()
+        );
     }
 
     #[test]
     fn bare_provide_never_satisfies_versioned_dep() {
         let dep = Dependency::parse("jdk>=17").unwrap();
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk").unwrap()).unwrap());
+        assert!(
+            !dep.satisfied_by_provide(&Dependency::parse("jdk").unwrap())
+                .unwrap()
+        );
         // ...but satisfies an unversioned one.
         let bare = Dependency::parse("jdk").unwrap();
-        assert!(bare.satisfied_by_provide(&Dependency::parse("jdk").unwrap()).unwrap());
+        assert!(
+            bare.satisfied_by_provide(&Dependency::parse("jdk").unwrap())
+                .unwrap()
+        );
     }
 
     #[test]
     fn provide_name_must_match() {
         let dep = Dependency::parse("libgl").unwrap();
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("libegl").unwrap()).unwrap());
+        assert!(
+            !dep.satisfied_by_provide(&Dependency::parse("libegl").unwrap())
+                .unwrap()
+        );
     }
 }

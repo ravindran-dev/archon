@@ -10,10 +10,10 @@
 //! run on a live system.
 
 mod cache;
+pub mod deb_index;
 mod desc;
 mod local_db;
 mod sync_db;
-pub mod deb_index;
 
 pub use desc::DescParseError;
 pub use local_db::{LocalDb, LocalDbError};
@@ -52,7 +52,10 @@ impl OfficialRepos {
     /// split out from [`OfficialRepos::load`] so [`OfficialRepos::load_cached`]
     /// can fingerprint them (mtime + size) before deciding whether it even
     /// needs to parse anything.
-    fn db_paths(sync_dir: &Path, repo_order: &[&str]) -> Result<Vec<std::path::PathBuf>, SyncDbError> {
+    fn db_paths(
+        sync_dir: &Path,
+        repo_order: &[&str],
+    ) -> Result<Vec<std::path::PathBuf>, SyncDbError> {
         let io_err = |source| SyncDbError::Io {
             path: sync_dir.display().to_string(),
             source,
@@ -92,7 +95,11 @@ impl OfficialRepos {
     /// `pacman -Sy`. Any cache problem (missing, corrupt, stale) falls
     /// back to a normal parse and a best-effort cache rewrite; caching is
     /// purely a speed optimization; see the `cache` module doc comment.
-    pub fn load_cached(sync_dir: &Path, repo_order: &[&str], cache_path: &Path) -> Result<Self, SyncDbError> {
+    pub fn load_cached(
+        sync_dir: &Path,
+        repo_order: &[&str],
+        cache_path: &Path,
+    ) -> Result<Self, SyncDbError> {
         let paths = Self::db_paths(sync_dir, repo_order)?;
         let Ok(fingerprint) = cache::Fingerprint::of_files(&paths) else {
             return Self::load(sync_dir, repo_order);
@@ -107,9 +114,14 @@ impl OfficialRepos {
             return Ok(Self { dbs });
         }
 
-        let dbs = paths.iter().map(|p| SyncDb::load(p)).collect::<Result<Vec<_>, _>>()?;
-        let snapshot: Snapshot =
-            dbs.iter().map(|db| (db.name.clone(), db.packages().cloned().collect())).collect();
+        let dbs = paths
+            .iter()
+            .map(|p| SyncDb::load(p))
+            .collect::<Result<Vec<_>, _>>()?;
+        let snapshot: Snapshot = dbs
+            .iter()
+            .map(|db| (db.name.clone(), db.packages().cloned().collect()))
+            .collect();
         cache::write(cache_path, fingerprint, &snapshot);
         Ok(Self { dbs })
     }
@@ -197,7 +209,11 @@ mod tests {
             header.set_mode(0o644);
             header.set_cksum();
             builder
-                .append_data(&mut header, format!("{name}-{version}/desc"), desc.as_bytes())
+                .append_data(
+                    &mut header,
+                    format!("{name}-{version}/desc"),
+                    desc.as_bytes(),
+                )
                 .unwrap();
         }
         SyncDb::from_tar_bytes(repo, &builder.into_inner().unwrap()).unwrap()
@@ -233,9 +249,16 @@ mod tests {
 
     #[test]
     fn search_matches_substring_case_insensitively() {
-        let core = db_from(&[("firefox", "128.0-1", ""), ("openssl", "3.3.1-1", "")], "core");
+        let core = db_from(
+            &[("firefox", "128.0-1", ""), ("openssl", "3.3.1-1", "")],
+            "core",
+        );
         let repos = OfficialRepos::from_dbs(vec![core]);
-        let hits: Vec<&str> = repos.search("FIRE").iter().map(|p| p.name.as_str()).collect();
+        let hits: Vec<&str> = repos
+            .search("FIRE")
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(hits, ["firefox"]);
         assert!(repos.search("nonexistent").is_empty());
     }
@@ -243,11 +266,24 @@ mod tests {
     #[test]
     fn search_dedups_names_shadowed_across_repos() {
         let core = db_from(&[("foo-tool", "2.0-1", "")], "core");
-        let extra = db_from(&[("foo-tool", "1.0-1", ""), ("foo-extra", "1.0-1", "")], "extra");
+        let extra = db_from(
+            &[("foo-tool", "1.0-1", ""), ("foo-extra", "1.0-1", "")],
+            "extra",
+        );
         let repos = OfficialRepos::from_dbs(vec![core, extra]);
         let hits = repos.search("foo");
         let foo_tool_hits = hits.iter().filter(|p| p.name == "foo-tool").count();
-        assert_eq!(foo_tool_hits, 1, "foo-tool must appear once, keeping core's precedence copy");
-        assert_eq!(hits.iter().find(|p| p.name == "foo-tool").unwrap().version.to_string(), "2.0-1");
+        assert_eq!(
+            foo_tool_hits, 1,
+            "foo-tool must appear once, keeping core's precedence copy"
+        );
+        assert_eq!(
+            hits.iter()
+                .find(|p| p.name == "foo-tool")
+                .unwrap()
+                .version
+                .to_string(),
+            "2.0-1"
+        );
     }
 }

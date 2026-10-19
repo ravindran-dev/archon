@@ -2,7 +2,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use archon_types::{Dependency, PackageMeta, PackageProvider, ProviderError, PackageSource, Version, ConstraintOp};
+use archon_types::{
+    ConstraintOp, Dependency, PackageMeta, PackageProvider, PackageSource, ProviderError, Version,
+};
 
 pub struct AptLists {
     pub packages: Vec<PackageMeta>,
@@ -46,10 +48,10 @@ impl AptLists {
         for line in reader.lines() {
             let line = line?;
             if line.trim().is_empty() {
-                if let Some(pkg) = current_pkg.take() {
-                    if let Ok(meta) = Self::build_meta(pkg) {
-                        packages.push(meta);
-                    }
+                if let Some(pkg) = current_pkg.take()
+                    && let Ok(meta) = Self::build_meta(pkg)
+                {
+                    packages.push(meta);
                 }
                 continue;
             }
@@ -63,22 +65,25 @@ impl AptLists {
                 let key = k.trim();
                 let value = v.trim().to_string();
 
-                let mut pkg: std::collections::HashMap<String, String> = current_pkg.unwrap_or_default();
+                let mut pkg: std::collections::HashMap<String, String> =
+                    current_pkg.unwrap_or_default();
                 pkg.insert(key.to_string(), value);
                 current_pkg = Some(pkg);
             }
         }
-        
-        if let Some(pkg) = current_pkg {
-            if let Ok(meta) = Self::build_meta(pkg) {
-                packages.push(meta);
-            }
+
+        if let Some(pkg) = current_pkg
+            && let Ok(meta) = Self::build_meta(pkg)
+        {
+            packages.push(meta);
         }
 
         Ok(packages)
     }
 
-    fn build_meta(mut raw: std::collections::HashMap<String, String>) -> Result<PackageMeta, &'static str> {
+    fn build_meta(
+        mut raw: std::collections::HashMap<String, String>,
+    ) -> Result<PackageMeta, &'static str> {
         let name = raw.remove("Package").ok_or("Missing Package")?;
         let version_str = raw.remove("Version").ok_or("Missing Version")?;
         let version = Version::parse_dpkg(&version_str).map_err(|_| "Invalid Version")?;
@@ -100,7 +105,7 @@ impl AptLists {
         }
 
         Ok(PackageMeta {
-        package_base: None,
+            package_base: None,
             name,
             version,
             description,
@@ -111,9 +116,12 @@ impl AptLists {
             provides,
         })
     }
-    
+
     pub fn all_package_names(&self) -> Vec<(String, String)> {
-        self.packages.iter().map(|p| (p.name.clone(), "apt".to_string())).collect()
+        self.packages
+            .iter()
+            .map(|p| (p.name.clone(), "apt".to_string()))
+            .collect()
     }
 }
 
@@ -138,14 +146,16 @@ impl PackageProvider for AptLists {
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for pkg in &self.packages {
-            if pkg.satisfies(&Dependency {
-                name: dep_name.to_string(),
-                constraint: None,
-                alternatives: Vec::new(),
-            }).map_err(|error| ProviderError::Backend(Box::new(error)))? {
-                if seen.insert(pkg.name.clone()) {
-                    out.push(pkg.clone());
-                }
+            if pkg
+                .satisfies(&Dependency {
+                    name: dep_name.to_string(),
+                    constraint: None,
+                    alternatives: Vec::new(),
+                })
+                .map_err(|error| ProviderError::Backend(Box::new(error)))?
+                && seen.insert(pkg.name.clone())
+            {
+                out.push(pkg.clone());
             }
         }
         Ok(out)
@@ -157,7 +167,7 @@ pub fn parse_depends(raw: &str) -> Vec<Dependency> {
     let mut out = Vec::new();
     for group in raw.split(',') {
         let mut parts = group.split('|').map(|s| s.trim()).filter(|s| !s.is_empty());
-        
+
         let preferred = match parts.next() {
             Some(p) => p,
             None => continue,
@@ -187,30 +197,50 @@ fn parse_single_depend(raw: &str) -> Option<Dependency> {
             // Let's map it to Archon's VersionConstraint
             let mut op = None;
             let mut ver_str = constraint_str;
-            if let Some(v) = constraint_str.strip_prefix(">=") { op = Some(ConstraintOp::Ge); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix("<=") { op = Some(ConstraintOp::Le); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix("=") { op = Some(ConstraintOp::Eq); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix(">>") { op = Some(ConstraintOp::Gt); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix("<<") { op = Some(ConstraintOp::Lt); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix(">") { op = Some(ConstraintOp::Gt); ver_str = v.trim(); }
-            else if let Some(v) = constraint_str.strip_prefix("<") { op = Some(ConstraintOp::Lt); ver_str = v.trim(); }
+            if let Some(v) = constraint_str.strip_prefix(">=") {
+                op = Some(ConstraintOp::Ge);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix("<=") {
+                op = Some(ConstraintOp::Le);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix("=") {
+                op = Some(ConstraintOp::Eq);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix(">>") {
+                op = Some(ConstraintOp::Gt);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix("<<") {
+                op = Some(ConstraintOp::Lt);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix(">") {
+                op = Some(ConstraintOp::Gt);
+                ver_str = v.trim();
+            } else if let Some(v) = constraint_str.strip_prefix("<") {
+                op = Some(ConstraintOp::Lt);
+                ver_str = v.trim();
+            }
 
             if let (Some(op), Ok(ver)) = (op, Version::parse_dpkg(ver_str)) {
                 return Some(Dependency {
                     name,
-                    constraint: Some(archon_types::VersionConstraint {
-                        op,
-                        version: ver,
-                    }),
+                    constraint: Some(archon_types::VersionConstraint { op, version: ver }),
                     alternatives: Vec::new(),
                 });
             } else {
                 // Ignore invalid constraint, just depend on the name
-                return Some(Dependency { name, constraint: None, alternatives: Vec::new() });
+                return Some(Dependency {
+                    name,
+                    constraint: None,
+                    alternatives: Vec::new(),
+                });
             }
         }
     }
-    Some(Dependency { name: raw.to_string(), constraint: None, alternatives: Vec::new() })
+    Some(Dependency {
+        name: raw.to_string(),
+        constraint: None,
+        alternatives: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -224,7 +254,10 @@ mod tests {
         assert_eq!(deps.len(), 3);
         assert_eq!(deps[0].name, "libc6");
         assert_eq!(deps[0].constraint.as_ref().unwrap().op, ConstraintOp::Ge);
-        assert_eq!(deps[0].constraint.as_ref().unwrap().version.to_string(), "2.31-13+deb11u5");
+        assert_eq!(
+            deps[0].constraint.as_ref().unwrap().version.to_string(),
+            "2.31-13+deb11u5"
+        );
 
         assert_eq!(deps[1].name, "libcrypt1");
         assert_eq!(deps[2].name, "libgcc-s1");
@@ -247,7 +280,7 @@ Architecture: amd64
 ";
         let pkgs = AptLists::parse_reader(stanza.as_bytes()).unwrap();
         assert_eq!(pkgs.len(), 2);
-        
+
         let libc6 = &pkgs[0];
         assert_eq!(libc6.name, "libc6");
         assert_eq!(libc6.version.to_string(), "2.31-13+deb11u5");
@@ -267,10 +300,15 @@ Package: exim4
 Version: 4.94.2-7
 Provides: mail-transport-agent
 ";
-        let apt = AptLists { packages: AptLists::parse_reader(stanza.as_bytes()).unwrap() };
+        let apt = AptLists {
+            packages: AptLists::parse_reader(stanza.as_bytes()).unwrap(),
+        };
         let providers = apt.find_providers("mail-transport-agent").unwrap();
         assert_eq!(providers.len(), 2);
-        let mut names = providers.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+        let mut names = providers
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>();
         names.sort();
         assert_eq!(names, vec!["exim4", "postfix"]);
     }
@@ -288,10 +326,10 @@ Architecture: amd64
 ";
         let pkgs = AptLists::parse_reader(stanza.as_bytes()).unwrap();
         assert_eq!(pkgs.len(), 2);
-        
+
         let rc = &pkgs[0].version;
         let final_v = &pkgs[1].version;
-        
+
         // 1.0~rc1 should be LESS than 1.0
         assert_eq!(rc.vercmp(final_v).unwrap(), std::cmp::Ordering::Less);
     }

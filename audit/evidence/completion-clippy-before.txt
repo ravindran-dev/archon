@@ -1,0 +1,54 @@
+    Checking ring v0.17.14
+   Compiling rustls v0.23.41
+    Checking archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+   Compiling zstd-safe v7.2.4
+    Checking hyper-util v0.1.20
+    Checking zstd-sys v2.0.16+zstd.1.5.7
+    Checking libsqlite3-sys v0.38.1
+    Checking aya v0.14.0
+    Checking tower-http v0.6.11
+    Checking env_filter v2.0.0
+    Checking rusqlite v0.40.1
+    Checking zstd v0.13.3
+error: this `if` has identical blocks
+   --> crates/archon-types/src/version.rs:287:29
+    |
+287 |               if b[j] == b'~' {
+    |  _____________________________^
+288 | |                 Ordering::Greater
+289 | |             } else if b[j].is_ascii_alphabetic() {
+    | |_____________^
+    |
+note: same as this
+   --> crates/archon-types/src/version.rs:289:50
+    |
+289 |               } else if b[j].is_ascii_alphabetic() {
+    |  __________________________________________________^
+290 | |                 Ordering::Greater
+291 | |             } else {
+    | |_____________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#if_same_then_else
+    = note: `-D clippy::if-same-then-else` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::if_same_then_else)]`
+
+error: this `if` has identical blocks
+   --> crates/archon-types/src/version.rs:296:29
+    |
+296 |               if a[i] == b'~' {
+    |  _____________________________^
+297 | |                 Ordering::Less
+298 | |             } else if a[i].is_ascii_alphabetic() {
+    | |_____________^
+    |
+note: same as this
+   --> crates/archon-types/src/version.rs:298:50
+    |
+298 |               } else if a[i].is_ascii_alphabetic() {
+    |  __________________________________________________^
+299 | |                 Ordering::Less
+300 | |             } else {
+    | |_____________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#if_same_then_else
+
+error: could not compile `archon-types` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...

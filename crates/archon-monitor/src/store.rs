@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use archon_monitor_common::{EventKind, SyscallEvent};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::policy::FlagReason;
 
@@ -120,7 +120,8 @@ impl EventStore {
             let flag_reason: Option<String> = row.get(8)?;
             Ok(StoredEvent { event, flag_reason })
         })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
     }
 }
 
@@ -143,13 +144,17 @@ mod tests {
         let store = EventStore::open_in_memory().unwrap();
         let build_id = store.start_build("tty-clock", 1_700_000_000).unwrap();
 
-        store.record_event(build_id, &sample_event("/usr/include/stdio.h"), None).unwrap();
+        store
+            .record_event(build_id, &sample_event("/usr/include/stdio.h"), None)
+            .unwrap();
         let flagged = sample_event("/etc/passwd");
         store
             .record_event(
                 build_id,
                 &flagged,
-                Some(&FlagReason::WriteOutsideBuildDir { path: "/etc/passwd".into() }),
+                Some(&FlagReason::WriteOutsideBuildDir {
+                    path: "/etc/passwd".into(),
+                }),
             )
             .unwrap();
 
@@ -158,7 +163,13 @@ mod tests {
         assert_eq!(events[0].event.path_str(), "/usr/include/stdio.h");
         assert!(events[0].flag_reason.is_none());
         assert_eq!(events[1].event.path_str(), "/etc/passwd");
-        assert!(events[1].flag_reason.as_deref().unwrap().contains("/etc/passwd"));
+        assert!(
+            events[1]
+                .flag_reason
+                .as_deref()
+                .unwrap()
+                .contains("/etc/passwd")
+        );
     }
 
     #[test]
@@ -166,8 +177,12 @@ mod tests {
         let store = EventStore::open_in_memory().unwrap();
         let build_a = store.start_build("pkg-a", 1).unwrap();
         let build_b = store.start_build("pkg-b", 2).unwrap();
-        store.record_event(build_a, &sample_event("/a"), None).unwrap();
-        store.record_event(build_b, &sample_event("/b"), None).unwrap();
+        store
+            .record_event(build_a, &sample_event("/a"), None)
+            .unwrap();
+        store
+            .record_event(build_b, &sample_event("/b"), None)
+            .unwrap();
 
         assert_eq!(store.events_for_build(build_a).unwrap().len(), 1);
         assert_eq!(store.events_for_build(build_b).unwrap().len(), 1);

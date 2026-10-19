@@ -47,7 +47,11 @@ pub trait Backend: std::fmt::Debug {
 }
 
 fn argv(parts: &[&str], names: &[String]) -> Vec<String> {
-    parts.iter().map(|s| s.to_string()).chain(names.iter().cloned()).collect()
+    parts
+        .iter()
+        .map(|s| s.to_string())
+        .chain(names.iter().cloned())
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,11 +62,19 @@ impl Backend for PacmanBackend {
         "pacman"
     }
     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["pacman", "-S", "--needed", "--noconfirm"] } else { &["pacman", "-S", "--needed"] };
+        let base: &[&str] = if assume_yes {
+            &["pacman", "-S", "--needed", "--noconfirm"]
+        } else {
+            &["pacman", "-S", "--needed"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["pacman", "-Rs", "--noconfirm"] } else { &["pacman", "-Rs"] };
+        let base: &[&str] = if assume_yes {
+            &["pacman", "-Rs", "--noconfirm"]
+        } else {
+            &["pacman", "-Rs"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
@@ -81,15 +93,27 @@ impl Backend for AptBackend {
         "apt"
     }
     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["apt", "install", "-y"] } else { &["apt", "install"] };
+        let base: &[&str] = if assume_yes {
+            &["apt", "install", "-y"]
+        } else {
+            &["apt", "install"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["apt", "remove", "-y"] } else { &["apt", "remove"] };
+        let base: &[&str] = if assume_yes {
+            &["apt", "remove", "-y"]
+        } else {
+            &["apt", "remove"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["apt-cache".to_string(), "search".to_string(), term.to_string()]
+        vec![
+            "apt-cache".to_string(),
+            "search".to_string(),
+            term.to_string(),
+        ]
     }
     fn is_installed_argv(&self, name: &str) -> Vec<String> {
         vec!["dpkg".to_string(), "-s".to_string(), name.to_string()]
@@ -104,11 +128,19 @@ impl Backend for DnfBackend {
         "dnf"
     }
     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["dnf", "install", "-y"] } else { &["dnf", "install"] };
+        let base: &[&str] = if assume_yes {
+            &["dnf", "install", "-y"]
+        } else {
+            &["dnf", "install"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["dnf", "remove", "-y"] } else { &["dnf", "remove"] };
+        let base: &[&str] = if assume_yes {
+            &["dnf", "remove", "-y"]
+        } else {
+            &["dnf", "remove"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
@@ -127,11 +159,19 @@ impl Backend for ZypperBackend {
         "zypper"
     }
     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["zypper", "--non-interactive", "install"] } else { &["zypper", "install"] };
+        let base: &[&str] = if assume_yes {
+            &["zypper", "--non-interactive", "install"]
+        } else {
+            &["zypper", "install"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["zypper", "--non-interactive", "remove"] } else { &["zypper", "remove"] };
+        let base: &[&str] = if assume_yes {
+            &["zypper", "--non-interactive", "remove"]
+        } else {
+            &["zypper", "remove"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
@@ -162,7 +202,12 @@ impl Backend for ApkBackend {
         vec!["apk".to_string(), "search".to_string(), term.to_string()]
     }
     fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["apk".to_string(), "info".to_string(), "-e".to_string(), name.to_string()]
+        vec![
+            "apk".to_string(),
+            "info".to_string(),
+            "-e".to_string(),
+            name.to_string(),
+        ]
     }
 }
 
@@ -212,17 +257,29 @@ impl Backend for XbpsBackend {
         "xbps"
     }
     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["xbps-install", "-Sy"] } else { &["xbps-install", "-S"] };
+        let base: &[&str] = if assume_yes {
+            &["xbps-install", "-Sy"]
+        } else {
+            &["xbps-install", "-S"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
         // -R removes now-orphaned dependencies too, matching what the
         // pacman backend's -Rs does on Arch.
-        let base: &[&str] = if assume_yes { &["xbps-remove", "-Ry"] } else { &["xbps-remove", "-R"] };
+        let base: &[&str] = if assume_yes {
+            &["xbps-remove", "-Ry"]
+        } else {
+            &["xbps-remove", "-R"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["xbps-query".to_string(), "-Rs".to_string(), term.to_string()]
+        vec![
+            "xbps-query".to_string(),
+            "-Rs".to_string(),
+            term.to_string(),
+        ]
     }
     fn is_installed_argv(&self, name: &str) -> Vec<String> {
         vec!["xbps-query".to_string(), name.to_string()]
@@ -241,15 +298,27 @@ impl Backend for EmergeBackend {
         // So archon's "no --yes given" maps to --ask (you get to review the
         // transaction) and --yes maps to plain emerge — inverted flag,
         // same user-visible semantics as every other backend.
-        let base: &[&str] = if assume_yes { &["emerge"] } else { &["emerge", "--ask"] };
+        let base: &[&str] = if assume_yes {
+            &["emerge"]
+        } else {
+            &["emerge", "--ask"]
+        };
         argv(base, names)
     }
     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes { &["emerge", "--depclean"] } else { &["emerge", "--ask", "--depclean"] };
+        let base: &[&str] = if assume_yes {
+            &["emerge", "--depclean"]
+        } else {
+            &["emerge", "--ask", "--depclean"]
+        };
         argv(base, names)
     }
     fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["emerge".to_string(), "--search".to_string(), term.to_string()]
+        vec![
+            "emerge".to_string(),
+            "--search".to_string(),
+            term.to_string(),
+        ]
     }
     fn is_installed_argv(&self, name: &str) -> Vec<String> {
         // qlist ships in portage-utils, present on effectively every
@@ -264,7 +333,10 @@ mod tests {
 
     #[test]
     fn pacman_install_argv() {
-        assert_eq!(PacmanBackend.install_argv(&["firefox".into()], false), ["pacman", "-S", "--needed", "firefox"]);
+        assert_eq!(
+            PacmanBackend.install_argv(&["firefox".into()], false),
+            ["pacman", "-S", "--needed", "firefox"]
+        );
     }
 
     #[test]
@@ -285,17 +357,26 @@ mod tests {
 
     #[test]
     fn apt_install_argv_assume_yes() {
-        assert_eq!(AptBackend.install_argv(&["firefox".into()], true), ["apt", "install", "-y", "firefox"]);
+        assert_eq!(
+            AptBackend.install_argv(&["firefox".into()], true),
+            ["apt", "install", "-y", "firefox"]
+        );
     }
 
     #[test]
     fn dnf_remove_argv() {
-        assert_eq!(DnfBackend.remove_argv(&["firefox".into()], true), ["dnf", "remove", "-y", "firefox"]);
+        assert_eq!(
+            DnfBackend.remove_argv(&["firefox".into()], true),
+            ["dnf", "remove", "-y", "firefox"]
+        );
     }
 
     #[test]
     fn dnf_remove_argv_without_assume_yes() {
-        assert_eq!(DnfBackend.remove_argv(&["firefox".into()], false), ["dnf", "remove", "firefox"]);
+        assert_eq!(
+            DnfBackend.remove_argv(&["firefox".into()], false),
+            ["dnf", "remove", "firefox"]
+        );
     }
 
     #[test]
@@ -308,13 +389,22 @@ mod tests {
     #[test]
     fn search_argv_per_backend() {
         assert_eq!(PacmanBackend.search_argv("vim"), ["pacman", "-Ss", "vim"]);
-        assert_eq!(AptBackend.search_argv("vim"), ["apt-cache", "search", "vim"]);
+        assert_eq!(
+            AptBackend.search_argv("vim"),
+            ["apt-cache", "search", "vim"]
+        );
         assert_eq!(DnfBackend.search_argv("vim"), ["dnf", "search", "vim"]);
-        assert_eq!(ZypperBackend.search_argv("vim"), ["zypper", "search", "vim"]);
+        assert_eq!(
+            ZypperBackend.search_argv("vim"),
+            ["zypper", "search", "vim"]
+        );
         assert_eq!(ApkBackend.search_argv("vim"), ["apk", "search", "vim"]);
         assert_eq!(NixBackend.search_argv("vim"), ["nix-env", "-qaP", "vim"]);
         assert_eq!(XbpsBackend.search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
-        assert_eq!(EmergeBackend.search_argv("vim"), ["emerge", "--search", "vim"]);
+        assert_eq!(
+            EmergeBackend.search_argv("vim"),
+            ["emerge", "--search", "vim"]
+        );
     }
 
     #[test]
@@ -323,7 +413,10 @@ mod tests {
             NixBackend.install_argv(&["firefox".into(), "vim".into()], false),
             ["nix-env", "-iA", "nixos.firefox", "nixos.vim"]
         );
-        assert_eq!(NixBackend.remove_argv(&["firefox".into()], false), ["nix-env", "-e", "firefox"]);
+        assert_eq!(
+            NixBackend.remove_argv(&["firefox".into()], false),
+            ["nix-env", "-e", "firefox"]
+        );
     }
 
     #[test]
@@ -348,29 +441,56 @@ mod tests {
             ZypperBackend.install_argv(&["vim".into()], true),
             ["zypper", "--non-interactive", "install", "vim"]
         );
-        assert_eq!(ZypperBackend.install_argv(&["vim".into()], false), ["zypper", "install", "vim"]);
+        assert_eq!(
+            ZypperBackend.install_argv(&["vim".into()], false),
+            ["zypper", "install", "vim"]
+        );
     }
 
     #[test]
     fn apk_is_always_non_interactive() {
         // Same argv either way: apk has no prompt for --yes to skip.
-        assert_eq!(ApkBackend.install_argv(&["vim".into()], false), ["apk", "add", "vim"]);
-        assert_eq!(ApkBackend.install_argv(&["vim".into()], true), ["apk", "add", "vim"]);
-        assert_eq!(ApkBackend.remove_argv(&["vim".into()], true), ["apk", "del", "vim"]);
+        assert_eq!(
+            ApkBackend.install_argv(&["vim".into()], false),
+            ["apk", "add", "vim"]
+        );
+        assert_eq!(
+            ApkBackend.install_argv(&["vim".into()], true),
+            ["apk", "add", "vim"]
+        );
+        assert_eq!(
+            ApkBackend.remove_argv(&["vim".into()], true),
+            ["apk", "del", "vim"]
+        );
     }
 
     #[test]
     fn xbps_argv() {
-        assert_eq!(XbpsBackend.install_argv(&["vim".into()], false), ["xbps-install", "-S", "vim"]);
-        assert_eq!(XbpsBackend.install_argv(&["vim".into()], true), ["xbps-install", "-Sy", "vim"]);
-        assert_eq!(XbpsBackend.remove_argv(&["vim".into()], true), ["xbps-remove", "-Ry", "vim"]);
+        assert_eq!(
+            XbpsBackend.install_argv(&["vim".into()], false),
+            ["xbps-install", "-S", "vim"]
+        );
+        assert_eq!(
+            XbpsBackend.install_argv(&["vim".into()], true),
+            ["xbps-install", "-Sy", "vim"]
+        );
+        assert_eq!(
+            XbpsBackend.remove_argv(&["vim".into()], true),
+            ["xbps-remove", "-Ry", "vim"]
+        );
     }
 
     #[test]
     fn emerge_ask_flag_is_inverted_but_semantics_match() {
         // No --yes: user still gets a confirmation (emerge's own --ask).
-        assert_eq!(EmergeBackend.install_argv(&["vim".into()], false), ["emerge", "--ask", "vim"]);
+        assert_eq!(
+            EmergeBackend.install_argv(&["vim".into()], false),
+            ["emerge", "--ask", "vim"]
+        );
         // --yes: no prompt anywhere, same as -y elsewhere.
-        assert_eq!(EmergeBackend.install_argv(&["vim".into()], true), ["emerge", "vim"]);
+        assert_eq!(
+            EmergeBackend.install_argv(&["vim".into()], true),
+            ["emerge", "vim"]
+        );
     }
 }

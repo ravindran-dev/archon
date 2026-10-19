@@ -43,7 +43,9 @@ fn source_hosts(srcinfo: &str) -> HashSet<String> {
     let mut hosts = HashSet::new();
     for line in srcinfo.lines() {
         let line = line.trim();
-        let Some((key, value)) = line.split_once('=') else { continue };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
         let key = key.trim();
         if key != "source" && !key.starts_with("source_") {
             continue;
@@ -94,9 +96,12 @@ pkgname = tty-clock
     fn vcs_https_sources_declare_their_network_host() {
         let hosts = source_hosts(
             "source = scanner::git+https://git.example.org/scanner.git#branch=main\n\
-             source_x86_64 = hg+https://hg.example.org/scanner\n"
+             source_x86_64 = hg+https://hg.example.org/scanner\n",
         );
-        assert!(hosts.contains("git.example.org"), "missing declared Git source host: {hosts:?}");
+        assert!(
+            hosts.contains("git.example.org"),
+            "missing declared Git source host: {hosts:?}"
+        );
         assert!(hosts.contains("hg.example.org"));
     }
 
@@ -106,7 +111,11 @@ pkgname = tty-clock
         assert!(hosts.contains("github.com"));
         assert!(hosts.contains("cdn.example.org"));
         assert!(hosts.contains("ftp.gnu.org"));
-        assert_eq!(hosts.len(), 3, "local (no-scheme) source must not produce a host: {hosts:?}");
+        assert_eq!(
+            hosts.len(),
+            3,
+            "local (no-scheme) source must not produce a host: {hosts:?}"
+        );
     }
 
     #[test]

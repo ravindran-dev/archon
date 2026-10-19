@@ -36,7 +36,10 @@ pub enum SandboxError {
     #[error("failed to launch bwrap: {0}")]
     Spawn(#[source] std::io::Error),
     #[error("{stage:?} stage failed: makepkg exited with {status}")]
-    BuildFailed { stage: BuildStage, status: ExitStatus },
+    BuildFailed {
+        stage: BuildStage,
+        status: ExitStatus,
+    },
 }
 
 /// Builds the `cgroup.procs` path as a `CString` up front — `pre_exec`
@@ -60,7 +63,11 @@ fn join_cgroup_raw(cgroup_procs_path: &CString) -> std::io::Result<()> {
     let mut buf = [0u8; 12]; // i32::MAX is 10 digits; comfortably fits
     let digits = write_decimal(&mut buf, pid);
     let ret = unsafe { libc::write(fd, digits.as_ptr().cast(), digits.len()) };
-    let write_err = if ret < 0 { Some(std::io::Error::last_os_error()) } else { None };
+    let write_err = if ret < 0 {
+        Some(std::io::Error::last_os_error())
+    } else {
+        None
+    };
     unsafe { libc::close(fd) };
     match write_err {
         Some(e) => Err(e),

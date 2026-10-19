@@ -17,25 +17,112 @@ use archon_monitor_common::{EventKind, SyscallEvent};
 /// package with unusual (but legitimate) build-time tooling.
 pub const DEFAULT_ALLOWED_TOOLS: &[&str] = &[
     // compilers / linkers
-    "gcc", "cc", "g++", "c++", "clang", "clang++", "ld", "ld.bfd", "ld.gold", "ld.lld", "as",
-    "ar", "nm", "objcopy", "objdump", "strip", "ranlib", "rustc", "cargo", "go",
+    "gcc",
+    "cc",
+    "g++",
+    "c++",
+    "clang",
+    "clang++",
+    "ld",
+    "ld.bfd",
+    "ld.gold",
+    "ld.lld",
+    "as",
+    "ar",
+    "nm",
+    "objcopy",
+    "objdump",
+    "strip",
+    "ranlib",
+    "rustc",
+    "cargo",
+    "go",
     // build-system drivers
-    "make", "cmake", "ninja", "meson", "autoconf", "automake", "autoreconf", "libtool", "m4",
-    "bison", "flex", "pkg-config", "pkgconf",
+    "make",
+    "cmake",
+    "ninja",
+    "meson",
+    "autoconf",
+    "automake",
+    "autoreconf",
+    "libtool",
+    "m4",
+    "bison",
+    "flex",
+    "pkg-config",
+    "pkgconf",
     // archives / compression
-    "tar", "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zstd", "unzstd", "bsdtar",
-    "install", "patch",
+    "tar",
+    "gzip",
+    "gunzip",
+    "bzip2",
+    "bunzip2",
+    "xz",
+    "unxz",
+    "zstd",
+    "unzstd",
+    "bsdtar",
+    "install",
+    "patch",
     // scripting / text
-    "sh", "bash", "python", "python3", "perl", "sed", "gawk", "awk", "grep", "find", "xargs",
+    "sh",
+    "bash",
+    "python",
+    "python3",
+    "perl",
+    "sed",
+    "gawk",
+    "awk",
+    "grep",
+    "find",
+    "xargs",
     // fs / coreutils commonly shelled out to by build scripts
-    "cp", "mv", "rm", "mkdir", "ln", "touch", "cat", "echo", "printf", "test", "true", "false",
-    "dirname", "basename", "readlink", "realpath", "id", "uname", "nproc", "env", "which",
-    "date", "sort", "wc", "chmod", "chown", "getopt", "cut",
+    "cp",
+    "mv",
+    "rm",
+    "mkdir",
+    "ln",
+    "touch",
+    "cat",
+    "echo",
+    "printf",
+    "test",
+    "true",
+    "false",
+    "dirname",
+    "basename",
+    "readlink",
+    "realpath",
+    "id",
+    "uname",
+    "nproc",
+    "env",
+    "which",
+    "date",
+    "sort",
+    "wc",
+    "chmod",
+    "chown",
+    "getopt",
+    "cut",
     // packaging / checksums (makepkg itself and its helpers)
-    "makepkg", "bwrap", "fakeroot", "faked", "gpg", "sha256sum", "sha512sum", "b2sum", "md5sum",
-    "gdb-add-index", "install-info", "gettext", "tput",
+    "makepkg",
+    "bwrap",
+    "fakeroot",
+    "faked",
+    "gpg",
+    "sha256sum",
+    "sha512sum",
+    "b2sum",
+    "md5sum",
+    "gdb-add-index",
+    "install-info",
+    "gettext",
+    "tput",
     // fetch tools makepkg itself uses to download declared sources
-    "curl", "wget", "git",
+    "curl",
+    "wget",
+    "git",
 ];
 
 /// Bare filenames archon's own sandbox setup (bwrap's unprivileged user
@@ -90,7 +177,10 @@ impl Policy {
     pub fn new(build_dir: impl Into<PathBuf>, allowed_ips: HashSet<Ipv4Addr>) -> Self {
         Self {
             build_dir: build_dir.into(),
-            allowed_tools: DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
+            allowed_tools: DEFAULT_ALLOWED_TOOLS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             allowed_ips,
         }
     }
@@ -124,7 +214,9 @@ impl Policy {
         if self.allowed_tools.contains(&basename) {
             return None;
         }
-        Some(FlagReason::UnexpectedExec { path: path.to_string() })
+        Some(FlagReason::UnexpectedExec {
+            path: path.to_string(),
+        })
     }
 
     fn evaluate_open(&self, event: &SyscallEvent) -> Option<FlagReason> {
@@ -146,7 +238,9 @@ impl Policy {
         if NAMESPACE_SETUP_FILES.contains(&path) {
             return None;
         }
-        Some(FlagReason::WriteOutsideBuildDir { path: path.to_string() })
+        Some(FlagReason::WriteOutsideBuildDir {
+            path: path.to_string(),
+        })
     }
 
     fn evaluate_connect(&self, event: &SyscallEvent) -> Option<FlagReason> {
@@ -157,7 +251,10 @@ impl Policy {
         if self.allowed_ips.contains(&addr) {
             return None;
         }
-        Some(FlagReason::UndeclaredConnection { addr, port: event.port })
+        Some(FlagReason::UndeclaredConnection {
+            addr,
+            port: event.port,
+        })
     }
 
     fn is_inside_build_dir(&self, path: &str) -> bool {
@@ -209,7 +306,9 @@ mod tests {
         let got = policy().evaluate(&exec_event("/tmp/payload"));
         assert_eq!(
             got,
-            Some(FlagReason::UnexpectedExec { path: "/tmp/payload".into() })
+            Some(FlagReason::UnexpectedExec {
+                path: "/tmp/payload".into()
+            })
         );
     }
 
@@ -230,7 +329,9 @@ mod tests {
         let ev = open_event("/etc/passwd", open_flags::O_WRONLY);
         assert_eq!(
             policy().evaluate(&ev),
-            Some(FlagReason::WriteOutsideBuildDir { path: "/etc/passwd".into() })
+            Some(FlagReason::WriteOutsideBuildDir {
+                path: "/etc/passwd".into()
+            })
         );
     }
 
@@ -265,7 +366,11 @@ mod tests {
             "bwrap", "date", "gettext", "tput", "sort", "wc", "chmod", "chown", "getopt", "cut",
         ] {
             let ev = exec_event(&format!("/usr/bin/{tool}"));
-            assert_eq!(policy().evaluate(&ev), None, "{tool} should be allow-listed");
+            assert_eq!(
+                policy().evaluate(&ev),
+                None,
+                "{tool} should be allow-listed"
+            );
         }
     }
 

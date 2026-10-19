@@ -10,8 +10,8 @@
 mod common;
 
 use common::{
-    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir, fixture_local_dir,
-    fixture_os_release, fixture_sync_dir, run_archon,
+    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir,
+    fixture_local_dir, fixture_os_release, fixture_sync_dir, run_archon,
 };
 
 #[test]
@@ -41,7 +41,10 @@ fn remove_rejects_package_that_is_not_installed() {
 
     let out = run_archon(
         &["remove", "not-installed-xyz", "--dry-run"],
-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+        &[
+            ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
     );
 
     assert!(!out.status.success());
@@ -50,15 +53,21 @@ fn remove_rejects_package_that_is_not_installed() {
 
 #[test]
 fn remove_dry_run_shows_plan_and_stops_before_pacman() {
-    let (_local, local_dir) =
-        fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_local, local_dir) = fixture_local_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let local_dir = local_dir.to_string_lossy().into_owned();
     let (_cache, cache_dir) = empty_cache_dir();
     let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["remove", "leaf", "--dry-run"],
-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+        &[
+            ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
     );
 
     assert!(out.status.success(), "stderr: {}", out.stderr);
@@ -74,14 +83,21 @@ fn remove_dry_run_shows_plan_and_stops_before_pacman() {
 
 #[test]
 fn remove_all_or_nothing_when_one_package_is_missing() {
-    let (_local, local_dir) = fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_local, local_dir) = fixture_local_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let local_dir = local_dir.to_string_lossy().into_owned();
     let (_cache, cache_dir) = empty_cache_dir();
     let cache_dir = cache_dir.to_string_lossy().into_owned();
 
     let out = run_archon(
         &["remove", "leaf", "also-not-installed", "--dry-run"],
-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
+        &[
+            ("ARCHON_LOCAL_DIR", &local_dir),
+            ("ARCHON_CACHE_DIR", &cache_dir),
+        ],
     );
 
     assert!(!out.status.success());
@@ -104,7 +120,11 @@ fn install_help_lists_report_flag() {
 
 #[test]
 fn dry_run_resolves_and_stops_before_any_mutation() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
     let local_dir = local_dir.to_string_lossy().into_owned();
@@ -135,8 +155,16 @@ fn dry_run_resolves_and_stops_before_any_mutation() {
 #[test]
 fn dry_run_shows_transitive_dependencies() {
     let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "leaf", version: "1.0-1", depends: &[] },
-        FixturePkg { name: "top", version: "2.0-1", depends: &["leaf"] },
+        FixturePkg {
+            name: "leaf",
+            version: "1.0-1",
+            depends: &[],
+        },
+        FixturePkg {
+            name: "top",
+            version: "2.0-1",
+            depends: &["leaf"],
+        },
     ]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
@@ -162,7 +190,11 @@ fn dry_run_shows_transitive_dependencies() {
 
 #[test]
 fn plan_is_equivalent_to_install_dry_run() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_local, local_dir) = empty_local_dir();
     let local_dir = local_dir.to_string_lossy().into_owned();
@@ -186,7 +218,11 @@ fn plan_is_equivalent_to_install_dry_run() {
 
 #[test]
 fn package_not_found_anywhere_fails_with_clear_error() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -201,7 +237,11 @@ fn package_not_found_anywhere_fails_with_clear_error() {
         ],
     );
 
-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+    assert!(
+        !out.status.success(),
+        "expected failure, stdout: {}",
+        out.stdout
+    );
     assert!(
         out.stderr.contains("not found"),
         "expected a clear not-found error, got: {}",
@@ -215,8 +255,11 @@ fn not_found_suggests_similarly_named_official_packages() {
     // "not found", even though `cuttlefish-base-git` exists — no exact
     // package is named `cuttlefish` at all, so exact lookup alone can never
     // find it, and the user has no way to discover the real name.
-    let (_dir, sync_dir) =
-        fixture_sync_dir(&[FixturePkg { name: "cuttlefish-base-git", version: "1:r1-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "cuttlefish-base-git",
+        version: "1:r1-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -231,7 +274,11 @@ fn not_found_suggests_similarly_named_official_packages() {
         ],
     );
 
-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+    assert!(
+        !out.status.success(),
+        "expected failure, stdout: {}",
+        out.stdout
+    );
     assert!(out.stderr.contains("not found"), "got: {}", out.stderr);
     assert!(
         out.stderr.contains("cuttlefish-base-git"),
@@ -242,9 +289,11 @@ fn not_found_suggests_similarly_named_official_packages() {
 
 #[test]
 fn typo_correction_noninteractive_fails_fast_with_suggestions_printed() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
-    ]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "firefox",
+        version: "128.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -263,16 +312,28 @@ fn typo_correction_noninteractive_fails_fast_with_suggestions_printed() {
     );
 
     // stdin is null in tests and we didn't force interactive, so it will fail fast.
-    assert!(!out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
-    assert!(out.stderr.contains("package not found, did you mean: firefox"), "got: {}", out.stderr);
+    assert!(
+        !out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stderr
+            .contains("package not found, did you mean: firefox"),
+        "got: {}",
+        out.stderr
+    );
 }
 
 #[test]
 fn typo_correction_accepts_suggestion_and_proceeds() {
     use common::run_archon_interactive;
-    let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
-    ]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "firefox",
+        version: "128.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -288,21 +349,32 @@ fn typo_correction_accepts_suggestion_and_proceeds() {
             ("ARCHON_CACHE_DIR", &cache_dir),
             ("ARCHON_LOCAL_DIR", &local_dir),
         ],
-        "\n" // Enter
+        "\n", // Enter
     );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains("Did you mean"), "got: {}", out.stdout);
     assert!(out.stdout.contains("firefox"), "got: {}", out.stdout);
-    assert!(out.stdout.contains("Install plan"), "must proceed to plan: {}", out.stdout);
+    assert!(
+        out.stdout.contains("Install plan"),
+        "must proceed to plan: {}",
+        out.stdout
+    );
 }
 
 #[test]
 fn typo_correction_rejects_explicit_cancel() {
     use common::run_archon_interactive;
-    let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
-    ]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "firefox",
+        version: "128.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -318,7 +390,7 @@ fn typo_correction_rejects_explicit_cancel() {
             ("ARCHON_CACHE_DIR", &cache_dir),
             ("ARCHON_LOCAL_DIR", &local_dir),
         ],
-        "n\n" // Cancel
+        "n\n", // Cancel
     );
 
     assert!(!out.status.success());
@@ -329,9 +401,11 @@ fn typo_correction_rejects_explicit_cancel() {
 #[test]
 fn typo_correction_reprompts_on_invalid_selection_then_fails_after_cap() {
     use common::run_archon_interactive;
-    let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
-    ]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "firefox",
+        version: "128.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -347,12 +421,16 @@ fn typo_correction_reprompts_on_invalid_selection_then_fails_after_cap() {
             ("ARCHON_CACHE_DIR", &cache_dir),
             ("ARCHON_LOCAL_DIR", &local_dir),
         ],
-        "99\ngarbage\n-1\n" // 3 invalid attempts
+        "99\ngarbage\n-1\n", // 3 invalid attempts
     );
 
     assert!(!out.status.success());
     assert!(out.stdout.contains("Invalid selection"));
-    assert!(out.stdout.contains("Too many invalid attempts"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("Too many invalid attempts"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -376,7 +454,7 @@ fn typo_correction_respects_max_depth_when_suggestion_also_not_found() {
     // Wait, `handle_typo_correction` will NEVER return a string that produces `NotFound` because it gets them from `all_package_names()` or AUR `search`. But AUR `search` might return a package that `/info` returns as not found? No, AUR is consistent.
     // So the depth limit is mainly a theoretical safety guard, or for cases where the package is found but fails resolver for OTHER reasons. But depth limit only checks `NotFound` on TARGET.
     // We can mock it by having `cargo run` with a fake AUR endpoint that returns `search` results but empty `info` results!
-    
+
     // We will skip testing depth limit directly via CLI because it requires a very specific mock server.
     // Let's just trust it's there.
 }
@@ -385,9 +463,11 @@ fn typo_correction_respects_max_depth_when_suggestion_also_not_found() {
 fn arch_typo_correction_excludes_debian_packages_from_mock_apt_lists() {
     use std::fs::File;
     use std::io::Write;
-    let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "dummy", version: "1.0", depends: &[] },
-    ]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "dummy",
+        version: "1.0",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -397,7 +477,8 @@ fn arch_typo_correction_excludes_debian_packages_from_mock_apt_lists() {
 
     let apt_dir = tempfile::tempdir().unwrap();
     let mut f = File::create(apt_dir.path().join("main_Packages")).unwrap();
-    f.write_all(b"Package: ubuntu-restricted-extras\nVersion: 1.0\nArchitecture: amd64\n").unwrap();
+    f.write_all(b"Package: ubuntu-restricted-extras\nVersion: 1.0\nArchitecture: amd64\n")
+        .unwrap();
 
     let out = run_archon(
         &["install", "ubuntu-restricted-extres", "--dry-run"],
@@ -412,16 +493,32 @@ fn arch_typo_correction_excludes_debian_packages_from_mock_apt_lists() {
 
     assert!(!out.status.success());
     assert!(out.stderr.contains("not found"), "got: {}", out.stderr);
-    assert!(!out.stderr.contains("ubuntu-restricted-extras"), "Arch suggestions must exclude apt candidates: {}", out.stderr);
+    assert!(
+        !out.stderr.contains("ubuntu-restricted-extras"),
+        "Arch suggestions must exclude apt candidates: {}",
+        out.stderr
+    );
     assert!(!out.stderr.contains("panicked"), "got: {}", out.stderr);
 }
 
 #[test]
 fn search_finds_official_matches_by_substring() {
     let (_dir, sync_dir) = fixture_sync_dir(&[
-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
-        FixturePkg { name: "firefox-developer-edition", version: "129.0-1", depends: &[] },
-        FixturePkg { name: "unrelated", version: "1.0-1", depends: &[] },
+        FixturePkg {
+            name: "firefox",
+            version: "128.0-1",
+            depends: &[],
+        },
+        FixturePkg {
+            name: "firefox-developer-edition",
+            version: "129.0-1",
+            depends: &[],
+        },
+        FixturePkg {
+            name: "unrelated",
+            version: "1.0-1",
+            depends: &[],
+        },
     ]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
@@ -437,7 +534,12 @@ fn search_finds_official_matches_by_substring() {
         ],
     );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains("firefox"));
     assert!(out.stdout.contains("firefox-developer-edition"));
     assert!(!out.stdout.contains("unrelated"));
@@ -445,7 +547,11 @@ fn search_finds_official_matches_by_substring() {
 
 #[test]
 fn search_with_no_matches_still_succeeds() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let aur_url = empty_aur_server();
     let (_cache, cache_dir) = empty_cache_dir();
@@ -460,7 +566,11 @@ fn search_with_no_matches_still_succeeds() {
         ],
     );
 
-    assert!(out.status.success(), "a search with no hits is not an error: {}", out.stderr);
+    assert!(
+        out.status.success(),
+        "a search with no hits is not an error: {}",
+        out.stderr
+    );
 }
 
 #[test]
@@ -468,11 +578,23 @@ fn install_dry_run_on_debian_delegates_to_apt() {
     let (_os, os_release) = fixture_os_release("ID=ubuntu\nID_LIKE=debian\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["install", "firefox", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains("Debian/Ubuntu"), "got: {}", out.stdout);
-    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("apt install firefox"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -485,8 +607,17 @@ fn install_yes_on_fedora_passes_through_assume_yes_flag() {
         &[("ARCHON_OS_RELEASE", &os_release)],
     );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
-    assert!(out.stdout.contains("dnf install -y firefox"), "got: {}", out.stdout);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("dnf install -y firefox"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -494,11 +625,22 @@ fn install_on_unsupported_distro_fails_naming_what_was_detected() {
     let (_os, os_release) = fixture_os_release("ID=slackware\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["install", "firefox", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+    assert!(
+        !out.status.success(),
+        "expected failure, stdout: {}",
+        out.stdout
+    );
     assert!(out.stderr.contains("slackware"), "got: {}", out.stderr);
-    assert!(out.stderr.contains("no supported package manager"), "got: {}", out.stderr);
+    assert!(
+        out.stderr.contains("no supported package manager"),
+        "got: {}",
+        out.stderr
+    );
 }
 
 #[test]
@@ -506,11 +648,23 @@ fn remove_dry_run_on_fedora_delegates_to_dnf() {
     let (_os, os_release) = fixture_os_release("ID=fedora\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["remove", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["remove", "firefox", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains("Fedora/RHEL"), "got: {}", out.stdout);
-    assert!(out.stdout.contains("dnf remove firefox"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("dnf remove firefox"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -518,25 +672,54 @@ fn install_dry_run_on_nixos_uses_user_profile_without_sudo() {
     let (_os, os_release) = fixture_os_release("ID=nixos\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["install", "firefox", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains("NixOS"), "got: {}", out.stdout);
     // Channel-attribute install, and critically NO sudo — nix-env installs
     // into the invoking user's profile; sudo would target root's instead.
-    assert!(out.stdout.contains("nix-env -iA nixos.firefox"), "got: {}", out.stdout);
-    assert!(!out.stdout.contains("sudo nix-env"), "nix-env must not run under sudo: {}", out.stdout);
+    assert!(
+        out.stdout.contains("nix-env -iA nixos.firefox"),
+        "got: {}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("sudo nix-env"),
+        "nix-env must not run under sudo: {}",
+        out.stdout
+    );
 }
 
 #[test]
 fn install_dry_run_on_opensuse_delegates_to_zypper() {
-    let (_os, os_release) = fixture_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n");
+    let (_os, os_release) =
+        fixture_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["install", "vim", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
-    assert!(out.stdout.contains("sudo zypper install vim"), "got: {}", out.stdout);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("sudo zypper install vim"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -544,25 +727,51 @@ fn install_dry_run_on_alpine_delegates_to_apk() {
     let (_os, os_release) = fixture_os_release("ID=alpine\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
-    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
+    let out = run_archon(
+        &["install", "vim", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &os_release)],
+    );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
-    assert!(out.stdout.contains("sudo apk add vim"), "got: {}", out.stdout);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("sudo apk add vim"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
 fn remove_dry_run_on_void_and_gentoo_delegate_natively() {
     let (_os_void, void_release) = fixture_os_release("ID=void\n");
     let void_release = void_release.to_string_lossy().into_owned();
-    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &void_release)]);
+    let out = run_archon(
+        &["remove", "vim", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &void_release)],
+    );
     assert!(out.status.success(), "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("sudo xbps-remove -R vim"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("sudo xbps-remove -R vim"),
+        "got: {}",
+        out.stdout
+    );
 
     let (_os_gentoo, gentoo_release) = fixture_os_release("ID=gentoo\n");
     let gentoo_release = gentoo_release.to_string_lossy().into_owned();
-    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &gentoo_release)]);
+    let out = run_archon(
+        &["remove", "vim", "--dry-run"],
+        &[("ARCHON_OS_RELEASE", &gentoo_release)],
+    );
     assert!(out.status.success(), "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("sudo emerge --ask --depclean vim"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("sudo emerge --ask --depclean vim"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -575,13 +784,22 @@ fn install_report_on_non_arch_warns_and_falls_back_to_plain_install() {
         &[("ARCHON_OS_RELEASE", &os_release)],
     );
 
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(
         out.stdout.contains("only Arch/AUR has today"),
         "expected a note that --report isn't available here, got: {}",
         out.stdout
     );
-    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
+    assert!(
+        out.stdout.contains("apt install firefox"),
+        "got: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -594,12 +812,19 @@ fn missing_sync_dir_fails_with_actionable_error() {
         ],
     );
     assert!(!out.status.success());
-    assert!(out.stderr.contains("failed to load official repo databases"));
+    assert!(
+        out.stderr
+            .contains("failed to load official repo databases")
+    );
 }
 
 #[test]
 fn report_flag_without_root_fails_before_any_prompt() {
-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
+    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
+        name: "leaf",
+        version: "1.0-1",
+        depends: &[],
+    }]);
     let sync_dir = sync_dir.to_string_lossy().into_owned();
     let (_cache, cache_dir) = empty_cache_dir();
     let cache_dir = cache_dir.to_string_lossy().into_owned();
@@ -618,7 +843,11 @@ fn report_flag_without_root_fails_before_any_prompt() {
     // or touch pacman, matching the "no privileged operation without a
     // clear confirmation step" contract from the README/design notes.
     assert!(!out.status.success());
-    assert!(out.stderr.contains("root") || out.stderr.contains("sudo"), "got: {}", out.stderr);
+    assert!(
+        out.stderr.contains("root") || out.stderr.contains("sudo"),
+        "got: {}",
+        out.stderr
+    );
     assert!(!out.stdout.contains("sudo pacman"));
 }
 
@@ -648,11 +877,19 @@ fn build_help_lists_report_flag() {
 /// system dependency unit tests elsewhere already document as required.
 #[test]
 fn build_command_succeeds_on_benign_demo_package() {
-    if std::process::Command::new("bwrap").arg("--version").output().is_err() {
+    if std::process::Command::new("bwrap")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
         eprintln!("skipping: bwrap not available");
         return;
     }
-    if std::process::Command::new("makepkg").arg("--version").output().is_err() {
+    if std::process::Command::new("makepkg")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
         eprintln!("skipping: makepkg not available (required for sandbox test)");
         return;
     }
@@ -663,14 +900,23 @@ fn build_command_succeeds_on_benign_demo_package() {
     copy_dir(std::path::Path::new(demo_src), &dest);
 
     let out = run_archon(&["build", &dest.to_string_lossy()], &[]);
-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
     assert!(out.stdout.contains(".pkg.tar"));
 
     let has_pkg_file = std::fs::read_dir(&dest)
         .unwrap()
         .filter_map(|e| e.ok())
         .any(|e| e.file_name().to_string_lossy().contains(".pkg.tar"));
-    assert!(has_pkg_file, "expected a .pkg.tar* file in {}", dest.display());
+    assert!(
+        has_pkg_file,
+        "expected a .pkg.tar* file in {}",
+        dest.display()
+    );
 }
 
 fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
