@@ -42,8 +42,10 @@ pub fn suggest(query: &str, candidates: &[PackageRef], max_results: usize) -> Ve
 
     suggestions.sort_by(|a, b| {
         b.similarity
-            .partial_cmp(&a.similarity)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.similarity)
+            .then_with(|| a.pkg.name.cmp(&b.pkg.name))
+            .then_with(|| a.pkg.source.cmp(&b.pkg.source))
+            .then_with(|| a.pkg.repo.cmp(&b.pkg.repo))
     });
     suggestions.truncate(max_results);
     suggestions
@@ -59,6 +61,16 @@ mod tests {
             source: source.to_string(),
             repo: repo.map(|s| s.to_string()),
         }
+    }
+
+    #[test]
+    fn suggestion_ties_do_not_depend_on_index_iteration_order() {
+        let a = cand("foo", "pacman", Some("extra"));
+        let b = cand("foa", "pacman", Some("extra"));
+        assert_eq!(
+            suggest("fo", &[a.clone(), b.clone()], 5),
+            suggest("fo", &[b, a], 5)
+        );
     }
 
     #[test]

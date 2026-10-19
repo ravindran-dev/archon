@@ -1,0 +1,23 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.BUxS0D/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.BUxS0D/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.41s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 1 test
+
+thread 'suggest::tests::suggestion_ties_do_not_depend_on_index_iteration_order' (370) panicked at crates/archon-resolver/src/suggest.rs:68:9:
+assertion `left == right` failed
+  left: [Suggestion { pkg: PackageRef { name: "foo", source: "pacman", repo: Some("extra") }, similarity: 0.9111111111111111 }, Suggestion { pkg: PackageRef { name: "foa", source: "pacman", repo: Some("extra") }, similarity: 0.9111111111111111 }]
+ right: [Suggestion { pkg: PackageRef { name: "foa", source: "pacman", repo: Some("extra") }, similarity: 0.9111111111111111 }, Suggestion { pkg: PackageRef { name: "foo", source: "pacman", repo: Some("extra") }, similarity: 0.9111111111111111 }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test suggest::tests::suggestion_ties_do_not_depend_on_index_iteration_order ... FAILED
+
+failures:
+
+failures:
+    suggest::tests::suggestion_ties_do_not_depend_on_index_iteration_order
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`
