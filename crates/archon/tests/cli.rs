@@ -435,28 +435,33 @@ fn typo_correction_reprompts_on_invalid_selection_then_fails_after_cap() {
 
 #[test]
 fn typo_correction_respects_max_depth_when_suggestion_also_not_found() {
-    use common::run_archon_interactive;
-    // We will provide a suggestion that is found in the sync DB for the suggestion lookup,
-    // but when the resolver looks for it, it will fail (e.g. mock a broken suggestion or
-    // we can just use recursive typos: A -> B -> C -> fail).
-    // Actually, suggest uses all_package_names(). Let's put A, B, C, D in sync db, but
-    // actually if they are in sync db, they WILL resolve!
-    // To mock a failure, we can make the suggested package have an unsatisfiable dependency,
-    // but the typo logic only triggers on TARGET packages.
-    // Wait, how do we trigger depth limit?
-    // We can't easily trigger the depth limit if the suggestion succeeds.
-    // If we mock a `ResolveError::NotFound` loop, we'd need handle_typo_correction to return a package
-    // that then 404s. But handle_typo_correction ONLY returns names from all_package_names().
-    // Since it's from all_package_names(), it WILL be found by the resolver... UNLESS we delete it from
-    // the DB? But it's the same DB in the same run.
-    // Wait! A package can be in the AUR (and thus in candidates), but `AUR` might fail to resolve it (e.g. missing PKGBUILD or something, but NotFound is only if AUR `/info` returns empty).
-    // If it's in the DB, it resolves.
-    // Wait, `handle_typo_correction` will NEVER return a string that produces `NotFound` because it gets them from `all_package_names()` or AUR `search`. But AUR `search` might return a package that `/info` returns as not found? No, AUR is consistent.
-    // So the depth limit is mainly a theoretical safety guard, or for cases where the package is found but fails resolver for OTHER reasons. But depth limit only checks `NotFound` on TARGET.
-    // We can mock it by having `cargo run` with a fake AUR endpoint that returns `search` results but empty `info` results!
-
-    // We will skip testing depth limit directly via CLI because it requires a very specific mock server.
-    // Let's just trust it's there.
+    let (_sync, sync) = fixture_sync_dir(&[]);
+    let (_cache, cache) = empty_cache_dir();
+    let (_local, local) = empty_local_dir();
+    let url = common::correction_chain_aur_server();
+    let out = common::run_archon_interactive(
+        &["install", "fierfox", "--dry-run"],
+        &[
+            ("ARCHON_SYNC_DIR", sync.to_str().unwrap()),
+            ("ARCHON_CACHE_DIR", cache.to_str().unwrap()),
+            ("ARCHON_LOCAL_DIR", local.to_str().unwrap()),
+            ("ARCHON_AUR_URL", &url),
+        ],
+        "\n\n",
+    );
+    assert!(!out.status.success());
+    assert!(
+        out.stderr.contains("Recursion depth exceeded"),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("fierfox -> firefox -> firefox2"),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("panicked"), "{}", out.stderr);
+    assert!(!out.stdout.contains("pacman -U"));
 }
 
 #[test]

@@ -219,3 +219,37 @@ pub fn fixture_os_release(content: &str) -> (tempfile::TempDir, PathBuf) {
     std::fs::write(&path, content).expect("write fixture os-release");
     (dir, path)
 }
+
+/// Search advertises two names that info deliberately never resolves. This
+/// exercises the real correction-chain guard without relying on live AUR.
+pub fn correction_chain_aur_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind correction-chain fixture");
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let mut searches = 0;
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request = String::new();
+            reader.read_line(&mut request).unwrap();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            let body = if request.contains("by=name") {
+                searches += 1;
+                let name = if searches == 1 { "firefox" } else { "firefox2" };
+                format!(
+                    r#"{{"type":"search","results":[{{"Name":"{name}","Version":"1-1","PackageBase":"{name}"}}]}}"#
+                )
+            } else {
+                r#"{"type":"multiinfo","results":[]}"#.to_string()
+            };
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        }
+    });
+    format!("http://{address}")
+}
