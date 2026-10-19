@@ -78,6 +78,7 @@ pub fn parse(repo: &str, contents: &str) -> Result<PackageMeta, DescParseError> 
     };
 
     Ok(PackageMeta {
+        package_base: None,
         name: single("NAME")?.to_owned(),
         version: Version::parse(single("VERSION")?)?,
         description: sections

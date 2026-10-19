@@ -60,6 +60,11 @@ if '--noextract' in sys.argv:
                 sys.exit('AUR dependency was not installed before dependent build')
         artifact = dest / (dest.name + '-1-1-x86_64.pkg.tar.zst')
         artifact.write_bytes(b'fixture archive')
+        if os.environ['FIXTURE_CASE'] == 'split-base':
+            for name in ['fixture-app', 'fixture-lib']:
+                (dest / (name + '-1-1-x86_64.pkg.tar.zst')).write_bytes(b'fixture archive')
+            with open(os.environ['FIXTURE_LOG'] + '.builds', 'a') as f:
+                f.write('built\\n')
         if os.environ['FIXTURE_CASE'] == 'signed-artifact':
             pathlib.Path(str(artifact) + '.sig').write_bytes(b'fixture signature')
         if os.environ['FIXTURE_CASE'] == 'ambiguous-artifact':
@@ -83,6 +88,11 @@ if '--noextract' in sys.argv:
         recipe = work / 'cache/archon/build/fixture-app'
         recipe.mkdir(parents=True)
         (recipe / 'PKGBUILD').write_text('pkgname=fixture-app\n')
+        if case == 'split-base':
+            for name in ['suite', 'fixture-lib']:
+                extra = recipe.parent / name
+                extra.mkdir()
+                (extra / 'PKGBUILD').write_text('pkgname=fixture\n')
         if case == 'dependency-chain':
             dependency_recipe = recipe.parent / 'z-lib'
             dependency_recipe.mkdir()
@@ -120,6 +130,11 @@ if '--noextract' in sys.argv:
             assert len(calls) == 1, 'successful AUR install must invoke pacman -U exactly once'
             assert calls[0] == ['pacman', '-U', '--needed', '--', str(recipe / 'fixture-app-1-1-x86_64.pkg.tar.zst')]
             assert 'Not installed' not in result.stdout
+        elif case == 'split-base':
+            assert result.returncode == 0
+            assert len(calls) == 1 and len(calls[0]) == 6, 'split outputs must install together'
+            assert (work / 'commands.jsonl.builds').read_text().splitlines() == ['built'], 'one recipe build per base'
+            assert all('/suite/' in path for path in calls[0][4:])
         elif case == 'dependency-chain':
             assert result.returncode == 0 and len(calls) == 2
             assert '/z-lib/' in calls[0][-1] and '/fixture-app/' in calls[1][-1]
@@ -151,13 +166,21 @@ pub fn audit_unmonitored_install() -> Result<()> {
             version: archon_types::Version::parse("1-1")?,
             description: None,
             source: archon_types::PackageSource::Aur,
+            package_base: Some("fixture-app".into()),
             depends: vec![], make_depends: vec![], conflicts: vec![], provides: vec![],
         },
         required_by: vec![],
     };
-    if std::env::var("FIXTURE_CASE").as_deref() == Ok("dependency-chain") {
+    if std::env::var("FIXTURE_CASE").as_deref() == Ok("split-base") {
+        let mut app = pkg;
+        app.meta.package_base = Some("suite".into());
+        let mut library = app.clone();
+        library.meta.name = "fixture-lib".into();
+        build_aur_packages(&aur, &[library, app])
+    } else if std::env::var("FIXTURE_CASE").as_deref() == Ok("dependency-chain") {
         let mut dependency = pkg.clone();
         dependency.meta.name = "z-lib".into();
+        dependency.meta.package_base = Some("z-lib".into());
         build_aur_packages(&aur, &[dependency, pkg])
     } else {
         build_aur_packages(&aur, &[pkg])

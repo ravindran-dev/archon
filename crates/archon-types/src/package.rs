@@ -24,6 +24,9 @@ pub struct PackageMeta {
     pub version: Version,
     pub description: Option<String>,
     pub source: PackageSource,
+    /// Shared AUR recipe for split outputs. None for prebuilt/legacy metadata.
+    #[serde(default)]
+    pub package_base: Option<String>,
 
     /// Runtime dependencies (`depends=()` / `%DEPENDS%`).
     pub depends: Vec<Dependency>,
@@ -38,6 +41,10 @@ pub struct PackageMeta {
 }
 
 impl PackageMeta {
+    pub fn build_base(&self) -> &str {
+        self.package_base.as_deref().unwrap_or(&self.name)
+    }
+
     pub fn is_aur(&self) -> bool {
         matches!(self.source, PackageSource::Aur)
     }
@@ -68,6 +75,7 @@ mod tests {
             version: Version::parse(version).unwrap(),
             description: None,
             source: PackageSource::Official { repo: "core".into() },
+            package_base: None,
             depends: vec![],
             make_depends: vec![],
             conflicts: vec![],

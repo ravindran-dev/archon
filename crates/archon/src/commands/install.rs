@@ -420,7 +420,13 @@ fn ensure_bwrap() -> Result<()> {
 /// clones are left untouched rather than force-reset, since this is
 /// user-visible working state, not disposable scratch space.
 fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> Result<PathBuf> {
-    let dest = build_root.join(&pkg.meta.name);
+    let base = pkg.meta.build_base();
+    if base.is_empty() || base == "." || base == ".." || base.starts_with('-')
+        || !base.bytes().all(|c| c.is_ascii_alphanumeric() || b"@._+-".contains(&c))
+    {
+        bail!("invalid AUR package base {base:?}");
+    }
+    let dest = build_root.join(base);
     if dest.exists() {
         println!("{} {} {}", color::yellow("↺"), pkg.meta.name, color::dim("already cloned"));
         return Ok(dest);
@@ -490,23 +496,16 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
 
     println!();
-    for pkg in pkgs {
+    for group in aur_build_groups(pkgs) {
+        let pkg = group[0];
         let dest = clone_if_needed(aur, pkg, &build_root)?;
         let runner = SandboxRunner::new(&dest).capture_output(true);
-        build_in_sandbox(&runner, &dest, &pkg.meta.name)?;
-
-        let files = find_package_files(&dest, &pkg.meta.name)?;
-        if files.len() != 1 {
-            bail!(
-                "expected exactly one built package archive for {} in {}, found {}; \
-                 refusing installation of missing or ambiguous output",
-                pkg.meta.name, dest.display(), files.len()
-            );
-        }
+        build_in_sandbox(&runner, &dest, pkg.meta.build_base())?;
+        let files = built_group_files(&dest, &group)?;
         println!("==> Installing {} via pacman -U", pkg.meta.name);
         let status = Command::new("sudo")
             .args(["pacman", "-U", "--needed", "--"])
-            .arg(&files[0])
+            .args(&files)
             .status()
             .context("failed to execute sudo pacman -U")?;
         if !status.success() {
@@ -515,6 +514,32 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     }
     println!("\nInstalled {} AUR package(s).", pkgs.len());
     Ok(())
+}
+
+/// Keep a package base in one build and one installation transaction.
+fn aur_build_groups(pkgs: &[PlannedPackage]) -> Vec<Vec<&PlannedPackage>> {
+    let mut groups: Vec<Vec<&PlannedPackage>> = Vec::new();
+    for pkg in pkgs {
+        if let Some(group) = groups.iter_mut().find(|group| group[0].meta.build_base() == pkg.meta.build_base()) {
+            group.push(pkg);
+        } else {
+            groups.push(vec![pkg]);
+        }
+    }
+    groups
+}
+
+fn built_group_files(dest: &Path, group: &[&PlannedPackage]) -> Result<Vec<PathBuf>> {
+    let mut outputs = Vec::new();
+    for pkg in group {
+        let files = find_package_files(dest, &pkg.meta.name)?;
+        if files.len() != 1 {
+            bail!("expected exactly one built package archive for {} in {}, found {}; refusing installation of missing or ambiguous output",
+                pkg.meta.name, dest.display(), files.len());
+        }
+        outputs.extend(files);
+    }
+    Ok(outputs)
 }
 
 /// `--report` requires the eBPF monitor, which requires root. Loading it
@@ -583,13 +608,14 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
         .with_context(|| format!("failed to chown {} to the target user", build_root.display()))?;
     let store = EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
 
-    for pkg in pkgs {
+    for group in aur_build_groups(pkgs) {
+        let pkg = group[0];
         let dest = clone_if_needed(aur, pkg, &build_root)?;
         // `git clone` above ran as root; the sandboxed build that's about
         // to run as the dropped-to user needs to write into this tree.
         ensure_owned_recursive(&dest, privileges.uid, privileges.gid)
             .with_context(|| format!("failed to chown {} to the target user", dest.display()))?;
-        let report = run_monitored_build(&mut monitor, &store, &dest, &pkg.meta.name, &privileges)?;
+        let report = run_monitored_build(&mut monitor, &store, &dest, pkg.meta.build_base(), &privileges)?;
 
         ui::print_report(&report);
         if !report.is_clean() {
@@ -597,11 +623,7 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
             continue;
         }
 
-        let pkg_files = find_package_files(&dest, &pkg.meta.name)?;
-        if pkg_files.is_empty() {
-            println!("{} built clean but no package file was found", color::yellow(&pkg.meta.name));
-            continue;
-        }
+        let pkg_files = built_group_files(&dest, &group)?;
         if !ui::confirm(&format!("Install {} now via pacman -U?", pkg.meta.name))? {
             println!("skipped — package left at {}", dest.display());
             continue;

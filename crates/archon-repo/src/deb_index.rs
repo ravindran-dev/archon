@@ -100,6 +100,7 @@ impl AptLists {
         }
 
         Ok(PackageMeta {
+        package_base: None,
             name,
             version,
             description,

@@ -1,0 +1,13 @@
+$ direct-production-path install fixture-app --yes
+case: split-base
+
+↺ fixture-lib already cloned
+✓ suite (Fetch)
+✓ suite (Build)
+✓ suite built
+==> Installing fixture-lib via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-mnri7a_e/cache/archon/build/suite/fixture-lib-1-1-x86_64.pkg.tar.zst', '/tmp/archon-aur-install-mnri7a_e/cache/archon/build/suite/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: split-base

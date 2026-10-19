@@ -1,0 +1,21 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.MkZRez/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.MkZRez/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.42s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 1 test
+
+thread 'tests::split_siblings_with_runtime_cycle_build_as_one_base' (370) panicked at crates/archon-resolver/src/lib.rs:538:62:
+called `Result::unwrap()` on an `Err` value: DependencyCycle { cycle: ["suite-a", "suite-b", "suite-a"] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tests::split_siblings_with_runtime_cycle_build_as_one_base ... FAILED
+
+failures:
+
+failures:
+    tests::split_siblings_with_runtime_cycle_build_as_one_base
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`

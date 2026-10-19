@@ -1,0 +1,17 @@
+
+running 1 test
+
+thread 'model::tests::split_package_metadata_preserves_its_build_base' (52) panicked at /home/ravi/archon/crates/archon-aur/src/model.rs:109:9:
+assertion `left == right` failed
+  left: None
+ right: Some("suite")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test model::tests::split_package_metadata_preserves_its_build_base ... FAILED
+
+failures:
+
+failures:
+    model::tests::split_package_metadata_preserves_its_build_base
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+

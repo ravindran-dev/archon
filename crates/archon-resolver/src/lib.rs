@@ -223,6 +223,11 @@ fn build_plan(
         .filter(|m| m.is_aur())
         .map(|m| m.name.clone())
         .collect();
+    let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for name in &aur_nodes {
+        groups.entry(resolved[name].build_base().to_string()).or_default().insert(name.clone());
+    }
+    let group_nodes: BTreeSet<String> = groups.keys().cloned().collect();
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // Use the concrete choices recorded during resolution. Looking up the
     // original dependency again loses alternative choices and may pick a
@@ -240,12 +245,15 @@ fn build_plan(
             let declared = meta.depends.iter().chain(meta.make_depends.iter()).any(|dep| {
                 dep.to_string() == *spec || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
             });
-            if declared && dependent != dependency {
-                edges.entry(dependency.clone()).or_default().insert(dependent.clone());
+            let dependency_base = resolved[dependency].build_base();
+            let dependent_base = meta.build_base();
+            if declared && dependency_base != dependent_base {
+                edges.entry(dependency_base.to_string()).or_default().insert(dependent_base.to_string());
             }
         }
     }
-    let aur_order = graph::toposort(&aur_nodes, &edges)?;
+    let aur_order: Vec<String> = graph::toposort(&group_nodes, &edges)?
+        .into_iter().flat_map(|base| groups[&base].iter().cloned().collect::<Vec<_>>()).collect();
 
     let mut official: Vec<PlannedPackage> = resolved
         .values()
@@ -296,6 +304,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         PackageMeta {
+            package_base: if aur { Some(name.into()) } else { None },
             name: name.into(),
             version: Version::parse(version).unwrap(),
             description: None,
@@ -526,6 +535,16 @@ mod tests {
         let plan = Resolver::new(vec![&provider]).with_version_backend(archon_types::VersionBackend::Dpkg)
             .resolve(&["tool<1.0".into()]).unwrap();
         assert_eq!(names(&plan.official), ["tool"]);
+    }
+
+    #[test]
+    fn split_siblings_with_runtime_cycle_build_as_one_base() {
+        let mut a = pkg(true, "suite-a", "1", &["suite-b"], &[], &[], &[]);
+        let mut b = pkg(true, "suite-b", "1", &["suite-a"], &[], &[], &[]);
+        a.package_base = Some("suite".into());
+        b.package_base = Some("suite".into());
+        let plan = resolve(vec![], vec![a, b], &["suite-a"]).unwrap();
+        assert_eq!(names(&plan.aur), ["suite-a", "suite-b"]);
     }
 
     #[test]

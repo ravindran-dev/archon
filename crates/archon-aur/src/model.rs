@@ -72,6 +72,7 @@ impl AurPackage {
             if !build_dependencies.contains(&dependency) { build_dependencies.push(dependency); }
         }
         Ok(PackageMeta {
+            package_base: Some(self.package_base.clone()),
             version: Version::parse(&self.version)
                 .map_err(|e| bad(format!("version {:?}: {e}", self.version)))?,
             depends: parse_deps(&self.depends)?,
@@ -98,6 +99,15 @@ mod tests {
         let meta = pkg.into_meta().unwrap();
         assert_eq!(meta.make_depends.iter().map(ToString::to_string).collect::<Vec<_>>(),
                    ["cmake", "pytest>=8"]);
+    }
+
+    #[test]
+    fn split_package_metadata_preserves_its_build_base() {
+        let pkg: AurPackage = serde_json::from_str(r#"{
+            "Name":"suite-cli", "Version":"1-1", "PackageBase":"suite"
+        }"#).unwrap();
+        let metadata = serde_json::to_value(pkg.into_meta().unwrap()).unwrap();
+        assert_eq!(metadata.get("package_base").and_then(|value| value.as_str()), Some("suite"));
     }
 
     #[test]

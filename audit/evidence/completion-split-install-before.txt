@@ -1,0 +1,25 @@
+$ direct-production-path install fixture-app --yes
+case: split-base
+
+↺ fixture-lib already cloned
+✓ fixture-lib (Fetch)
+✓ fixture-lib (Build)
+✓ fixture-lib built
+==> Installing fixture-lib via pacman -U
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-l4k6i8k5/cache/archon/build/fixture-lib/fixture-lib-1-1-x86_64.pkg.tar.zst'], ['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-l4k6i8k5/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 225, in <module>
+    for scenario in scenarios: run_case(scenario)
+                               ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 135, in run_case
+    assert len(calls) == 1 and len(calls[0]) == 6, 'split outputs must install together'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: split outputs must install together
