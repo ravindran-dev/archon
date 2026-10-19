@@ -27,8 +27,9 @@ pub struct PackageMeta {
 
     /// Runtime dependencies (`depends=()` / `%DEPENDS%`).
     pub depends: Vec<Dependency>,
-    /// Build-time dependencies. Only meaningful for AUR packages — sync
-    /// databases don't ship makedepends for prebuilt packages.
+    /// Build-time dependencies, including checkdepends because makepkg runs
+    /// checks by default. Only meaningful for AUR packages; sync databases
+    /// do not ship build prerequisites for prebuilt packages.
     pub make_depends: Vec<Dependency>,
     /// Packages this one conflicts with (`conflicts=()` / `%CONFLICTS%`).
     pub conflicts: Vec<Dependency>,

@@ -24,6 +24,8 @@ pub struct AurPackage {
     #[serde(default)]
     pub make_depends: Vec<String>,
     #[serde(default)]
+    pub check_depends: Vec<String>,
+    #[serde(default)]
     pub conflicts: Vec<String>,
     #[serde(default)]
     pub provides: Vec<String>,
@@ -65,11 +67,15 @@ impl AurPackage {
                 .map(|s| Dependency::parse(s).map_err(|e| bad(format!("dependency {s:?}: {e}"))))
                 .collect()
         };
+        let mut build_dependencies = parse_deps(&self.make_depends)?;
+        for dependency in parse_deps(&self.check_depends)? {
+            if !build_dependencies.contains(&dependency) { build_dependencies.push(dependency); }
+        }
         Ok(PackageMeta {
             version: Version::parse(&self.version)
                 .map_err(|e| bad(format!("version {:?}: {e}", self.version)))?,
             depends: parse_deps(&self.depends)?,
-            make_depends: parse_deps(&self.make_depends)?,
+            make_depends: build_dependencies,
             conflicts: parse_deps(&self.conflicts)?,
             provides: parse_deps(&self.provides)?,
             name: self.name,
@@ -82,6 +88,17 @@ impl AurPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkdepends_are_required_for_default_makepkg_checks() {
+        let pkg: AurPackage = serde_json::from_str(r#"{
+            "Name":"scanner", "Version":"1-1", "PackageBase":"scanner",
+            "MakeDepends":["cmake"], "CheckDepends":["pytest>=8", "cmake"]
+        }"#).unwrap();
+        let meta = pkg.into_meta().unwrap();
+        assert_eq!(meta.make_depends.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                   ["cmake", "pytest>=8"]);
+    }
 
     #[test]
     fn deserializes_rpc_json_and_converts() {
@@ -112,6 +129,7 @@ mod tests {
             description: None,
             depends: vec![],
             make_depends: vec![],
+            check_depends: vec![],
             conflicts: vec![],
             provides: vec![],
             out_of_date: None,

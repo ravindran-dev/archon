@@ -1,0 +1,8 @@
+
+running 3 tests
+test model::tests::checkdepends_are_required_for_default_makepkg_checks ... ok
+test model::tests::deserializes_rpc_json_and_converts ... ok
+test model::tests::bad_version_error_names_the_package ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+

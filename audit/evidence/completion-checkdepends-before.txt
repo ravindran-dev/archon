@@ -1,0 +1,17 @@
+
+running 1 test
+
+thread 'model::tests::checkdepends_are_required_for_default_makepkg_checks' (50) panicked at /home/ravi/archon/crates/archon-aur/src/model.rs:93:9:
+assertion `left == right` failed
+  left: ["cmake"]
+ right: ["cmake", "pytest>=8"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test model::tests::checkdepends_are_required_for_default_makepkg_checks ... FAILED
+
+failures:
+
+failures:
+    model::tests::checkdepends_are_required_for_default_makepkg_checks
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
