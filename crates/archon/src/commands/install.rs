@@ -804,7 +804,18 @@ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<Path
             && !name.contains("-debug-")
             && entry.file_type()?.is_file()
         {
-            files.push(entry.path());
+            let identity = Command::new("pacman")
+                .args(["-Qp", "--"])
+                .arg(entry.path())
+                .output()
+                .context("failed to query built package identity with pacman -Qp")?;
+            if !identity.status.success() {
+                bail!("cannot read built package {}: {}", entry.path().display(), String::from_utf8_lossy(&identity.stderr));
+            }
+            let metadata = String::from_utf8(identity.stdout).context("invalid package identity output")?;
+            if metadata.split_whitespace().next() == Some(pkg_name) {
+                files.push(entry.path());
+            }
         }
     }
     Ok(files)

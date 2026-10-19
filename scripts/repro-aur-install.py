@@ -48,7 +48,7 @@ sys.exit(23 if os.environ['FIXTURE_CASE'] == 'install-failure' else 0)
         sudo.chmod(0o755)
         bwrap = tools / 'bwrap'
         bwrap.write_text('''#!/usr/bin/python3
-import os, pathlib, sys
+import json, os, pathlib, sys
 if '--version' in sys.argv:
     print('bubblewrap fixture'); sys.exit(0)
 if '--noextract' in sys.argv:
@@ -59,18 +59,28 @@ if '--noextract' in sys.argv:
             if not pathlib.Path(os.environ['FIXTURE_LOG'] + '.dependency-installed').exists():
                 sys.exit('AUR dependency was not installed before dependent build')
         artifact = dest / (dest.name + '-1-1-x86_64.pkg.tar.zst')
-        artifact.write_bytes(b'fixture archive')
+        artifact.write_text(json.dumps({'name': dest.name}))
         if os.environ['FIXTURE_CASE'] == 'split-base':
             for name in ['fixture-app', 'fixture-lib']:
-                (dest / (name + '-1-1-x86_64.pkg.tar.zst')).write_bytes(b'fixture archive')
+                (dest / (name + '-1-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': name}))
             with open(os.environ['FIXTURE_LOG'] + '.builds', 'a') as f:
                 f.write('built\\n')
+        if os.environ['FIXTURE_CASE'] == 'archive-identity':
+            artifact.unlink()
+            (dest / 'fixture-app-addon-1-1-x86_64.pkg.tar.zst').write_text(json.dumps({'name': 'fixture-app-addon'}))
         if os.environ['FIXTURE_CASE'] == 'signed-artifact':
             pathlib.Path(str(artifact) + '.sig').write_bytes(b'fixture signature')
         if os.environ['FIXTURE_CASE'] == 'ambiguous-artifact':
-            (dest / (dest.name + '-0-1-x86_64.pkg.tar.zst')).write_bytes(b'old archive')
+            (dest / (dest.name + '-0-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': dest.name}))
 ''')
         bwrap.chmod(0o755)
+        pacman = tools / 'pacman'
+        pacman.write_text("""#!/usr/bin/python3
+import json, pathlib, sys
+if sys.argv[1:3] != ['-Qp', '--']: sys.exit('unexpected pacman invocation')
+print(json.loads(pathlib.Path(sys.argv[-1]).read_text())['name'] + ' 1-1')
+""")
+        pacman.chmod(0o755)
         sync = work / 'sync'
         sync.mkdir()
         with tarfile.open(sync / 'core.db', 'w') as archive:
@@ -217,7 +227,7 @@ if __name__ == '__main__':
     DIRECT = '--direct' in scenarios
     if DIRECT: scenarios.remove('--direct')
     if DIRECT:
-        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain']
+        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain', 'split-base', 'archive-identity']
         if 'dry-run' in scenarios:
             raise SystemExit('UNVERIFIED: direct harness does not exercise CLI dry-run dispatch')
         with tempfile.TemporaryDirectory(prefix='archon-direct-harness-') as harness:

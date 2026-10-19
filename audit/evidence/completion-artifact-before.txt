@@ -1,0 +1,20 @@
+$ direct-production-path install fixture-app --yes
+case: archive-identity
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-v9lsoiub/cache/archon/build/fixture-app/fixture-app-addon-1-1-x86_64.pkg.tar.zst']]
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 235, in <module>
+    for scenario in scenarios: run_case(scenario)
+                               ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 157, in run_case
+    assert result.returncode != 0 and not calls, 'failed build/missing output must not install'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: failed build/missing output must not install
