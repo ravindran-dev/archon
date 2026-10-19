@@ -45,6 +45,9 @@ pub enum ResolveError {
     DependencyCycle { cycle: Vec<String> },
 
     #[error(transparent)]
+    Version(#[from] archon_types::VersionCompareError),
+
+    #[error(transparent)]
     Provider(#[from] ProviderError),
 }
 

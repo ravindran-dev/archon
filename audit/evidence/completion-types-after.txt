@@ -1,0 +1,49 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.yEZRgU/crates/archon-types)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_types-810f58dc673882ba)
+
+running 28 tests
+test dependency::tests::eq_constraint_without_pkgrel_matches_any_pkgrel ... ok
+test dependency::tests::bare_provide_never_satisfies_versioned_dep ... ok
+test dependency::tests::ge_is_not_gt_plus_eq ... ok
+test dependency::tests::parses_ge_constraint ... ok
+test dependency::tests::constraint_ops_match_vercmp ... ok
+test dependency::tests::parses_unversioned ... ok
+test dependency::tests::unconstrained_dep_accepts_anything ... ok
+test dependency::tests::versioned_provide_satisfies_versioned_dep ... ok
+test dependency::tests::provide_name_must_match ... ok
+test dependency::tests::strips_colon_description_suffix ... ok
+test package::tests::satisfies_by_exact_name_and_version ... ok
+test package::tests::satisfies_via_provides ... ok
+test version::tests::debian_tilde_sorts_older_than_anything ... ok
+test version::tests::display_roundtrips ... ok
+test version::tests::dpkg_version_comparisons ... ok
+test version::tests::epoch_dominates_everything ... ok
+test version::tests::missing_pkgrel_matches_any_pkgrel ... ok
+test version::tests::man_page_numeric_chain ... ok
+test version::tests::numeric_compares_by_value_not_lexically ... ok
+test version::tests::mixed_backend_comparison_returns_without_panicking ... ok
+test version::tests::numeric_segment_beats_alphabetic ... ok
+test version::tests::parses_epoch_ver_rel ... ok
+test version::tests::separator_runs_compare_by_length ... ok
+test version::tests::pkgrel_with_subrelease ... ok
+test version::tests::man_page_alpha_chain ... ok
+test version::tests::pkgrel_breaks_ties ... ok
+test version::tests::parses_bare_version ... ok
+test version::tests::leading_zeros_are_insignificant ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify_dpkg.rs (/tmp/archon-audit-resolver-target/debug/deps/verify_dpkg-6b538ebfda907eb1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests archon_types
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

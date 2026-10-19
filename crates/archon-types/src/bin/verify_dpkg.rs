@@ -36,7 +36,7 @@ fn main() {
     for (a, b) in pairs {
         let rust_a = Version::parse_dpkg(a).unwrap();
         let rust_b = Version::parse_dpkg(b).unwrap();
-        let rust_ord = rust_a.vercmp(&rust_b);
+        let rust_ord = rust_a.vercmp(&rust_b).expect("both versions use dpkg");
 
         let lt = Command::new("dpkg")
             .arg("--compare-versions").arg(a).arg("lt").arg(b)

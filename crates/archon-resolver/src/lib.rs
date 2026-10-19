@@ -140,22 +140,28 @@ impl<'a> Resolver<'a> {
                 for name in &missing {
                     let deps_for_name: Vec<&Dependency> =
                         pending.iter().map(|(d, _)| d).filter(|d| &d.name == name).collect();
-                    let mut candidates: Vec<PackageMeta> = provider
-                        .find_providers(name)?
-                        .into_iter()
-                        .filter(|m| deps_for_name.iter().all(|d| m.satisfies(d)))
-                        .collect();
+                    let mut candidates = Vec::new();
+                    for candidate in provider.find_providers(name)? {
+                        let mut matches = true;
+                        for dep in &deps_for_name {
+                            matches &= candidate.satisfies(dep)?;
+                        }
+                        if matches { candidates.push(candidate); }
+                    }
                     if !candidates.is_empty() {
                         // Compatibility comes before installed/alphabetical
                         // preference. Keep conflicting candidates only when
                         // every candidate conflicts, so selection still
                         // reports a conflict rather than NotFound.
-                        let compatible = |candidate: &PackageMeta| {
-                            !resolved.values().any(|existing| package_conflict(candidate, existing).is_some())
-                        };
-                        if candidates.iter().any(&compatible) {
-                            candidates.retain(compatible);
+                        let mut compatible = Vec::new();
+                        for candidate in &candidates {
+                            let mut conflicts = false;
+                            for existing in resolved.values() {
+                                conflicts |= package_conflict(candidate, existing)?.is_some();
+                            }
+                            if !conflicts { compatible.push(candidate.clone()); }
                         }
+                        if !compatible.is_empty() { candidates = compatible; }
                         candidates.sort_by(|a, b| a.name.cmp(&b.name));
                         // Prefer an already-installed candidate over the
                         // alphabetically-first one — see
@@ -198,7 +204,10 @@ impl<'a> Resolver<'a> {
                 }
 
                 let exact = found.get(&dep.name);
-                let selected = exact.filter(|m| m.satisfies(&dep)).cloned();
+                let selected = match exact {
+                    Some(meta) if meta.satisfies(&dep)? => Some(meta.clone()),
+                    _ => None,
+                };
                 let Some(meta) = selected else {
                     if let Some(alt) = dep.alternatives.first() {
                         let mut next_alt = alt.clone();
@@ -223,7 +232,10 @@ impl<'a> Resolver<'a> {
 
                 // Check if the selected meta conflicts with anything already resolved.
                 // If it does, and we have an alternative, fall back to it!
-                let conflict = resolved.values().find_map(|existing| package_conflict(&meta, existing));
+                let mut conflict = None;
+                for existing in resolved.values() {
+                    if let Some(error) = package_conflict(&meta, existing)? { conflict = Some(error); break; }
+                }
 
                 if let Some(error) = conflict {
                     if let Some(alt) = dep.alternatives.first() {
@@ -275,7 +287,7 @@ fn try_satisfy(
     dep: &Dependency,
     requirer: &str,
 ) -> Result<bool, ResolveError> {
-    if let Some(satisfier) = find_satisfier(resolved, dep) {
+    if let Some(satisfier) = find_satisfier(resolved, dep)? {
         let name = satisfier.name.clone();
         note_requirer(requirers, &name, requirer, dep);
         return Ok(true);
@@ -301,13 +313,18 @@ fn try_satisfy(
 fn find_satisfier<'r>(
     resolved: &'r HashMap<String, PackageMeta>,
     dep: &Dependency,
-) -> Option<&'r PackageMeta> {
+) -> Result<Option<&'r PackageMeta>, ResolveError> {
     if let Some(meta) = resolved.get(&dep.name)
-        && dep.is_satisfied_by(&meta.version)
+        && dep.is_satisfied_by(&meta.version)?
     {
-        return Some(meta);
+        return Ok(Some(meta));
     }
-    resolved.values().find(|m| m.satisfies(dep))
+    let mut packages: Vec<_> = resolved.values().collect();
+    packages.sort_by(|a, b| a.name.cmp(&b.name));
+    for meta in packages {
+        if meta.satisfies(dep)? { return Ok(Some(meta)); }
+    }
+    Ok(None)
 }
 
 fn note_requirer(
@@ -323,22 +340,17 @@ fn note_requirer(
 }
 
 /// A conflict in either direction between two selected candidates.
-fn package_conflict(candidate: &PackageMeta, existing: &PackageMeta) -> Option<ResolveError> {
-    if candidate.conflicts.iter().any(|c| c.name != candidate.name && existing.satisfies(c)) {
-        return Some(ResolveError::PackageConflict {
-            a: candidate.name.clone(),
-            b: existing.name.clone(),
-            declared_by: candidate.name.clone(),
-        });
+fn package_conflict(candidate: &PackageMeta, existing: &PackageMeta) -> Result<Option<ResolveError>, ResolveError> {
+    for (declaring, other) in [(candidate, existing), (existing, candidate)] {
+        for conflict in &declaring.conflicts {
+            if conflict.name != declaring.name && other.satisfies(conflict)? {
+                return Ok(Some(ResolveError::PackageConflict {
+                    a: declaring.name.clone(), b: other.name.clone(), declared_by: declaring.name.clone(),
+                }));
+            }
+        }
     }
-    if existing.conflicts.iter().any(|c| c.name != existing.name && candidate.satisfies(c)) {
-        return Some(ResolveError::PackageConflict {
-            a: existing.name.clone(),
-            b: candidate.name.clone(),
-            declared_by: existing.name.clone(),
-        });
-    }
-    None
+    Ok(None)
 }
 
 /// Pairwise `conflicts=()` check across the resolved set. A package's
@@ -354,7 +366,7 @@ fn check_conflicts(resolved: &HashMap<String, PackageMeta>) -> Result<(), Resolv
                 continue;
             }
             for other in resolved.values() {
-                if other.name != pkg.name && other.satisfies(conflict) {
+                if other.name != pkg.name && other.satisfies(conflict)? {
                     return Err(ResolveError::PackageConflict {
                         a: pkg.name.clone(),
                         b: other.name.clone(),
@@ -539,19 +551,6 @@ mod tests {
     }
 
     #[test]
-    fn aur_package_named_target_does_not_create_spurious_edges() {
-        let plan = resolve(
-            vec![],
-            vec![
-                pkg(true, "target", "1", &[], &[], &[], &[]),
-                pkg(true, "scanner", "1", &["target"], &[], &[], &[]),
-            ],
-            &["target", "scanner"],
-        ).unwrap();
-        assert_eq!(names(&plan.aur), ["target", "scanner"]);
-    }
-
-    #[test]
     fn virtual_provider_avoids_conflict_with_selected_package() {
         let plan = resolve(
             vec![
@@ -592,6 +591,27 @@ mod tests {
             &["scanner", "openssl"],
         );
         assert!(matches!(result, Err(ResolveError::PackageConflict { .. })), "{result:?}");
+    }
+
+    #[test]
+    fn aur_package_named_target_does_not_create_spurious_edges() {
+        let plan = resolve(
+            vec![],
+            vec![
+                pkg(true, "target", "1", &[], &[], &[], &[]),
+                pkg(true, "scanner", "1", &["target"], &[], &[], &[]),
+            ],
+            &["target", "scanner"],
+        ).unwrap();
+        assert_eq!(names(&plan.aur), ["target", "scanner"]);
+    }
+
+    #[test]
+    fn mixed_backend_resolution_returns_typed_error() {
+        let mut candidate = pkg(false, "tool", "1", &[], &[], &[], &[]);
+        candidate.version = Version::parse_dpkg("1").unwrap();
+        let result = resolve(vec![candidate], vec![], &["tool>=1"]);
+        assert!(matches!(result, Err(ResolveError::Version(_))));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dependency::Dependency;
-use crate::version::Version;
+use crate::version::{Version, VersionCompareError};
 
 /// Where a package comes from — this decides how archon installs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,11 +43,16 @@ impl PackageMeta {
 
     /// Whether this package satisfies `dep`, either directly (name matches
     /// and version passes the constraint) or through its `provides` array.
-    pub fn satisfies(&self, dep: &Dependency) -> bool {
-        if self.name == dep.name && dep.is_satisfied_by(&self.version) {
-            return true;
+    pub fn satisfies(&self, dep: &Dependency) -> Result<bool, VersionCompareError> {
+        if self.name == dep.name && dep.is_satisfied_by(&self.version)? {
+            return Ok(true);
         }
-        self.provides.iter().any(|p| dep.satisfied_by_provide(p))
+        for provide in &self.provides {
+            if dep.satisfied_by_provide(provide)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -72,16 +77,16 @@ mod tests {
     #[test]
     fn satisfies_by_exact_name_and_version() {
         let p = pkg("python", "3.12.1-1", &[]);
-        assert!(p.satisfies(&Dependency::parse("python>=3.11").unwrap()));
-        assert!(!p.satisfies(&Dependency::parse("python>=3.13").unwrap()));
+        assert!(p.satisfies(&Dependency::parse("python>=3.11").unwrap()).unwrap());
+        assert!(!p.satisfies(&Dependency::parse("python>=3.13").unwrap()).unwrap());
     }
 
     #[test]
     fn satisfies_via_provides() {
         let p = pkg("bash", "5.2-1", &["sh"]);
-        assert!(p.satisfies(&Dependency::parse("sh").unwrap()));
+        assert!(p.satisfies(&Dependency::parse("sh").unwrap()).unwrap());
         let jdk = pkg("jdk-openjdk", "21.0.2-1", &["jdk=21", "java-environment=21"]);
-        assert!(jdk.satisfies(&Dependency::parse("jdk>=17").unwrap()));
-        assert!(!jdk.satisfies(&Dependency::parse("jdk>=22").unwrap()));
+        assert!(jdk.satisfies(&Dependency::parse("jdk>=17").unwrap()).unwrap());
+        assert!(!jdk.satisfies(&Dependency::parse("jdk>=22").unwrap()).unwrap());
     }
 }

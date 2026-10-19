@@ -141,7 +141,7 @@ impl PackageProvider for AptLists {
                 name: dep_name.to_string(),
                 constraint: None,
                 alternatives: Vec::new(),
-            }) {
+            }).map_err(|error| ProviderError::Backend(Box::new(error)))? {
                 if seen.insert(pkg.name.clone()) {
                     out.push(pkg.clone());
                 }
@@ -292,6 +292,6 @@ Architecture: amd64
         let final_v = &pkgs[1].version;
         
         // 1.0~rc1 should be LESS than 1.0
-        assert_eq!(rc.vercmp(final_v), std::cmp::Ordering::Less);
+        assert_eq!(rc.vercmp(final_v).unwrap(), std::cmp::Ordering::Less);
     }
 }

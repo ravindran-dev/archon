@@ -45,6 +45,13 @@ pub enum VersionParseError {
     InvalidEpoch(String),
 }
 
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[error("cannot compare package versions from different backends: {left:?} and {right:?}")]
+pub struct VersionCompareError {
+    pub left: VersionBackend,
+    pub right: VersionBackend,
+}
+
 impl Version {
     /// Parse a full version string as it appears in repo databases and the
     /// AUR RPC, e.g. `2:1.4.3-1`, `20240101-2`, or a bare `1.0`.
@@ -88,16 +95,12 @@ impl Version {
     }
 
     /// libalpm-compatible comparison (see type-level docs for the rules).
-    pub fn vercmp(&self, other: &Self) -> Ordering {
+    pub fn vercmp(&self, other: &Self) -> Result<Ordering, VersionCompareError> {
         if self.backend != other.backend {
-            panic!(
-                "CRITICAL: Cross-backend version comparison attempted! {} ({:?}) vs {} ({:?}). \
-                 This indicates a resolver graph cross-contamination between distros.",
-                self, self.backend, other, other.backend
-            );
+            return Err(VersionCompareError { left: self.backend, right: other.backend });
         }
 
-        self.epoch
+        Ok(self.epoch
             .cmp(&other.epoch)
             .then_with(|| {
                 if self.backend == VersionBackend::Dpkg {
@@ -117,7 +120,7 @@ impl Version {
                 (Some(a), None) => if self.backend == VersionBackend::Dpkg { dpkgvercmp(a, "") } else { Ordering::Equal },
                 (None, Some(b)) => if other.backend == VersionBackend::Dpkg { dpkgvercmp("", b) } else { Ordering::Equal },
                 _ => Ordering::Equal,
-            })
+            }))
     }
 }
 
@@ -326,6 +329,16 @@ mod tests {
     use super::*;
     use std::cmp::Ordering::{Equal, Greater, Less};
 
+    #[test]
+    fn mixed_backend_comparison_returns_without_panicking() {
+        let arch = Version::parse("1").unwrap();
+        let deb = Version::parse_dpkg("1").unwrap();
+        assert!(std::panic::catch_unwind(|| arch.vercmp(&deb)).is_ok());
+        assert_eq!(arch.vercmp(&deb), Err(VersionCompareError {
+            left: VersionBackend::Alpm, right: VersionBackend::Dpkg,
+        }));
+    }
+
     fn v(s: &str) -> Version {
         Version::parse(s).unwrap()
     }
@@ -369,14 +382,14 @@ mod tests {
     fn assert_chain_ascending(chain: &[&str]) {
         for pair in chain.windows(2) {
             assert_eq!(
-                v(pair[0]).vercmp(&v(pair[1])),
+                v(pair[0]).vercmp(&v(pair[1])).unwrap(),
                 Less,
                 "expected {} < {}",
                 pair[0],
                 pair[1]
             );
             assert_eq!(
-                v(pair[1]).vercmp(&v(pair[0])),
+                v(pair[1]).vercmp(&v(pair[0])).unwrap(),
                 Greater,
                 "expected {} > {}",
                 pair[1],
@@ -387,60 +400,60 @@ mod tests {
 
     #[test]
     fn numeric_compares_by_value_not_lexically() {
-        assert_eq!(v("10.0").vercmp(&v("2.0")), Greater);
-        assert_eq!(v("1.010").vercmp(&v("1.9")), Greater);
+        assert_eq!(v("10.0").vercmp(&v("2.0")).unwrap(), Greater);
+        assert_eq!(v("1.010").vercmp(&v("1.9")).unwrap(), Greater);
     }
 
     #[test]
     fn leading_zeros_are_insignificant() {
-        assert_eq!(v("1.001").vercmp(&v("1.1")), Equal);
-        assert_eq!(v("01").vercmp(&v("1")), Equal);
+        assert_eq!(v("1.001").vercmp(&v("1.1")).unwrap(), Equal);
+        assert_eq!(v("01").vercmp(&v("1")).unwrap(), Equal);
     }
 
     #[test]
     fn epoch_dominates_everything() {
-        assert_eq!(v("1:0.1").vercmp(&v("999.999-99")), Greater);
-        assert_eq!(v("2:1.0").vercmp(&v("1:99.0")), Greater);
+        assert_eq!(v("1:0.1").vercmp(&v("999.999-99")).unwrap(), Greater);
+        assert_eq!(v("2:1.0").vercmp(&v("1:99.0")).unwrap(), Greater);
     }
 
     #[test]
     fn pkgrel_breaks_ties() {
-        assert_eq!(v("1.0-1").vercmp(&v("1.0-2")), Less);
-        assert_eq!(v("1.0-2").vercmp(&v("1.0-1")), Greater);
-        assert_eq!(v("1.0-1").vercmp(&v("1.0-1")), Equal);
+        assert_eq!(v("1.0-1").vercmp(&v("1.0-2")).unwrap(), Less);
+        assert_eq!(v("1.0-2").vercmp(&v("1.0-1")).unwrap(), Greater);
+        assert_eq!(v("1.0-1").vercmp(&v("1.0-1")).unwrap(), Equal);
     }
 
     #[test]
     fn missing_pkgrel_matches_any_pkgrel() {
-        assert_eq!(v("1.0").vercmp(&v("1.0-2")), Equal);
-        assert_eq!(v("1.0-2").vercmp(&v("1.0")), Equal);
+        assert_eq!(v("1.0").vercmp(&v("1.0-2")).unwrap(), Equal);
+        assert_eq!(v("1.0-2").vercmp(&v("1.0")).unwrap(), Equal);
     }
 
     #[test]
     fn numeric_segment_beats_alphabetic() {
-        assert_eq!(v("1.0.1").vercmp(&v("1.0.a")), Greater);
-        assert_eq!(v("2024").vercmp(&v("beta")), Greater);
+        assert_eq!(v("1.0.1").vercmp(&v("1.0.a")).unwrap(), Greater);
+        assert_eq!(v("2024").vercmp(&v("beta")).unwrap(), Greater);
     }
 
     #[test]
     fn separator_runs_compare_by_length() {
-        assert_eq!(v("1..0").vercmp(&v("1.0")), Greater);
-        assert_eq!(v("1.0").vercmp(&v("1..0")), Less);
+        assert_eq!(v("1..0").vercmp(&v("1.0")).unwrap(), Greater);
+        assert_eq!(v("1.0").vercmp(&v("1..0")).unwrap(), Less);
     }
 
     #[test]
     fn pkgrel_with_subrelease() {
-        assert_eq!(v("1.0-1.2").vercmp(&v("1.0-1.1")), Greater);
+        assert_eq!(v("1.0-1.2").vercmp(&v("1.0-1.1")).unwrap(), Greater);
     }
 
     #[test]
     fn debian_tilde_sorts_older_than_anything() {
-        assert_eq!(v("1.0~rc1").vercmp(&v("1.0")), Less);
-        assert_eq!(v("1.0~rc1").vercmp(&v("1.0.1")), Less);
-        assert_eq!(v("1.0~rc1").vercmp(&v("1.0~rc2")), Less);
-        assert_eq!(v("1.0~rc2").vercmp(&v("1.0~rc1")), Greater);
-        assert_eq!(v("1.0~rc1~2").vercmp(&v("1.0~rc1")), Less);
-        assert_eq!(v("1~rc1").vercmp(&v("1~rc1")), Equal);
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0")).unwrap(), Less);
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0.1")).unwrap(), Less);
+        assert_eq!(v("1.0~rc1").vercmp(&v("1.0~rc2")).unwrap(), Less);
+        assert_eq!(v("1.0~rc2").vercmp(&v("1.0~rc1")).unwrap(), Greater);
+        assert_eq!(v("1.0~rc1~2").vercmp(&v("1.0~rc1")).unwrap(), Less);
+        assert_eq!(v("1~rc1").vercmp(&v("1~rc1")).unwrap(), Equal);
     }
     
     fn dv(s: &str) -> Version {
@@ -449,12 +462,12 @@ mod tests {
 
     #[test]
     fn dpkg_version_comparisons() {
-        assert_eq!(dv("1.0~rc1").vercmp(&dv("1.0~rc2")), Less);
-        assert_eq!(dv("1.0~~").vercmp(&dv("1.0~")), Less);
-        assert_eq!(dv("1:2.0").vercmp(&dv("2.0~rc1")), Greater);
-        assert_eq!(dv("1.0~rc1~2").vercmp(&dv("1.0~rc1")), Less);
-        assert_eq!(dv("1.0").vercmp(&dv("1.0~rc1")), Greater);
-        assert_eq!(dv("1.0-1").vercmp(&dv("1.0-2")), Less);
-        assert_eq!(dv("1.0a").vercmp(&dv("1.0")), Greater);
+        assert_eq!(dv("1.0~rc1").vercmp(&dv("1.0~rc2")).unwrap(), Less);
+        assert_eq!(dv("1.0~~").vercmp(&dv("1.0~")).unwrap(), Less);
+        assert_eq!(dv("1:2.0").vercmp(&dv("2.0~rc1")).unwrap(), Greater);
+        assert_eq!(dv("1.0~rc1~2").vercmp(&dv("1.0~rc1")).unwrap(), Less);
+        assert_eq!(dv("1.0").vercmp(&dv("1.0~rc1")).unwrap(), Greater);
+        assert_eq!(dv("1.0-1").vercmp(&dv("1.0-2")).unwrap(), Less);
+        assert_eq!(dv("1.0a").vercmp(&dv("1.0")).unwrap(), Greater);
     }
 }

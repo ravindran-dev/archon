@@ -1,0 +1,30 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.ZmDJ69/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.ZmDJ69/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.10s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_types-810f58dc673882ba)
+
+running 1 test
+
+thread 'version::tests::mixed_backend_comparison_returns_without_panicking' (724) panicked at crates/archon-types/src/version.rs:93:13:
+CRITICAL: Cross-backend version comparison attempted! 1 (Alpm) vs 1 (Dpkg). This indicates a resolver graph cross-contamination between distros.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'version::tests::mixed_backend_comparison_returns_without_panicking' (724) panicked at crates/archon-types/src/version.rs:333:9:
+assertion failed: std::panic::catch_unwind(|| arch.vercmp(&deb)).is_ok()
+test version::tests::mixed_backend_comparison_returns_without_panicking ... FAILED
+
+failures:
+
+failures:
+    version::tests::mixed_backend_comparison_returns_without_panicking
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-types --lib`

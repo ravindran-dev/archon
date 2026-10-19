@@ -14,4 +14,4 @@ mod version;
 pub use dependency::{ConstraintOp, Dependency, DependencyParseError, VersionConstraint};
 pub use package::{PackageMeta, PackageSource};
 pub use provider::{PackageProvider, ProviderError};
-pub use version::{Version, VersionParseError};
+pub use version::{Version, VersionBackend, VersionCompareError, VersionParseError};

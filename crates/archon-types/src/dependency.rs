@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::{Version, VersionParseError};
+use crate::version::{Version, VersionCompareError, VersionParseError};
 
 /// A dependency specification as written in a PKGBUILD or repo database:
 /// `glibc`, `python>=3.11`, `libfoo.so=2-64`, ...
@@ -88,18 +88,18 @@ impl Dependency {
 
     /// Whether `version` satisfies this dependency's constraint (a missing
     /// constraint is satisfied by anything). Built on [`Version::vercmp`].
-    pub fn is_satisfied_by(&self, version: &Version) -> bool {
+    pub fn is_satisfied_by(&self, version: &Version) -> Result<bool, VersionCompareError> {
         match &self.constraint {
-            None => true,
+            None => Ok(true),
             Some(c) => {
-                let ord = version.vercmp(&c.version);
-                match c.op {
+                let ord = version.vercmp(&c.version)?;
+                Ok(match c.op {
                     ConstraintOp::Eq => ord == std::cmp::Ordering::Equal,
                     ConstraintOp::Ge => ord != std::cmp::Ordering::Less,
                     ConstraintOp::Le => ord != std::cmp::Ordering::Greater,
                     ConstraintOp::Gt => ord == std::cmp::Ordering::Greater,
                     ConstraintOp::Lt => ord == std::cmp::Ordering::Less,
-                }
+                })
             }
         }
     }
@@ -109,13 +109,13 @@ impl Dependency {
     /// a *versioned* dep is only satisfied by a *versioned* provide whose
     /// version passes the constraint (a bare `provides=(foo)` never
     /// satisfies `foo>=2`).
-    pub fn satisfied_by_provide(&self, provide: &Dependency) -> bool {
+    pub fn satisfied_by_provide(&self, provide: &Dependency) -> Result<bool, VersionCompareError> {
         if self.name != provide.name {
-            return false;
+            return Ok(false);
         }
         match (&self.constraint, &provide.constraint) {
-            (None, _) => true,
-            (Some(_), None) => false,
+            (None, _) => Ok(true),
+            (Some(_), None) => Ok(false),
             (Some(_), Some(pc)) => self.is_satisfied_by(&pc.version),
         }
     }
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn unconstrained_dep_accepts_anything() {
-        assert!(Dependency::parse("foo").unwrap().is_satisfied_by(&ver("0.0.1")));
+        assert!(Dependency::parse("foo").unwrap().is_satisfied_by(&ver("0.0.1")).unwrap());
     }
 
     #[test]
@@ -198,7 +198,7 @@ mod tests {
         for (spec, candidate, expected) in cases {
             let d = Dependency::parse(spec).unwrap();
             assert_eq!(
-                d.is_satisfied_by(&ver(candidate)),
+                d.is_satisfied_by(&ver(candidate)).unwrap(),
                 expected,
                 "{spec} vs {candidate}"
             );
@@ -208,28 +208,28 @@ mod tests {
     #[test]
     fn eq_constraint_without_pkgrel_matches_any_pkgrel() {
         let d = Dependency::parse("foo=1.5").unwrap();
-        assert!(d.is_satisfied_by(&ver("1.5-3")));
+        assert!(d.is_satisfied_by(&ver("1.5-3")).unwrap());
     }
 
     #[test]
     fn versioned_provide_satisfies_versioned_dep() {
         let dep = Dependency::parse("jdk>=17").unwrap();
-        assert!(dep.satisfied_by_provide(&Dependency::parse("jdk=21").unwrap()));
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk=11").unwrap()));
+        assert!(dep.satisfied_by_provide(&Dependency::parse("jdk=21").unwrap()).unwrap());
+        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk=11").unwrap()).unwrap());
     }
 
     #[test]
     fn bare_provide_never_satisfies_versioned_dep() {
         let dep = Dependency::parse("jdk>=17").unwrap();
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk").unwrap()));
+        assert!(!dep.satisfied_by_provide(&Dependency::parse("jdk").unwrap()).unwrap());
         // ...but satisfies an unversioned one.
         let bare = Dependency::parse("jdk").unwrap();
-        assert!(bare.satisfied_by_provide(&Dependency::parse("jdk").unwrap()));
+        assert!(bare.satisfied_by_provide(&Dependency::parse("jdk").unwrap()).unwrap());
     }
 
     #[test]
     fn provide_name_must_match() {
         let dep = Dependency::parse("libgl").unwrap();
-        assert!(!dep.satisfied_by_provide(&Dependency::parse("libegl").unwrap()));
+        assert!(!dep.satisfied_by_provide(&Dependency::parse("libegl").unwrap()).unwrap());
     }
 }

@@ -83,7 +83,7 @@ impl LocalDb {
     pub fn satisfies(&self, name: &str, min_version: &Version) -> bool {
         self.versions
             .get(name)
-            .is_some_and(|installed| installed.vercmp(min_version) != std::cmp::Ordering::Less)
+            .is_some_and(|installed| installed.vercmp(min_version).is_ok_and(|order| order != std::cmp::Ordering::Less))
     }
 
     pub fn len(&self) -> usize {
