@@ -69,37 +69,24 @@ impl Distro {
         let fields = parse_os_release(contents);
         let id = fields.get("ID").cloned().unwrap_or_default();
         let id_like = fields.get("ID_LIKE").cloned().unwrap_or_default();
-        let haystack = format!("{id} {id_like}");
-        let has = |w: &str| haystack.split_whitespace().any(|word| word == w);
-
-        if has("arch") {
-            return Distro::Arch;
-        }
-        if has("debian") || has("ubuntu") {
-            return Distro::Debian;
-        }
-        if has("fedora") || has("rhel") {
-            return Distro::Fedora;
-        }
-        // openSUSE's ID is a compound word ("opensuse-tumbleweed",
-        // "opensuse-leap"), so word-equality alone would miss it — but its
-        // ID_LIKE is "opensuse suse", and SLES is ID=sles/ID_LIKE=suse, so
-        // the word check covers both once the compound prefix is also
-        // recognized.
-        if has("suse") || has("opensuse") || id.starts_with("opensuse") {
-            return Distro::Suse;
-        }
-        if has("alpine") {
-            return Distro::Alpine;
-        }
-        if has("nixos") {
-            return Distro::NixOs;
-        }
-        if has("void") {
-            return Distro::Void;
-        }
-        if has("gentoo") {
-            return Distro::Gentoo;
+        // A recognized ID is authoritative. For derivatives, ID_LIKE is
+        // ordered from the closest relative to more distant families.
+        for candidate in std::iter::once(id.as_str()).chain(id_like.split_whitespace()) {
+            let distro = match candidate {
+                "arch" => Some(Distro::Arch),
+                "debian" | "ubuntu" => Some(Distro::Debian),
+                "fedora" | "rhel" => Some(Distro::Fedora),
+                "suse" | "opensuse" => Some(Distro::Suse),
+                value if value.starts_with("opensuse") => Some(Distro::Suse),
+                "alpine" => Some(Distro::Alpine),
+                "nixos" => Some(Distro::NixOs),
+                "void" => Some(Distro::Void),
+                "gentoo" => Some(Distro::Gentoo),
+                _ => None,
+            };
+            if let Some(distro) = distro {
+                return distro;
+            }
         }
         Distro::Unknown(if id.is_empty() { "unknown".to_string() } else { id })
     }
@@ -159,6 +146,16 @@ fn parse_os_release(contents: &str) -> std::collections::HashMap<String, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognized_id_precedes_id_like() {
+        assert_eq!(Distro::from_os_release("ID=ubuntu\nID_LIKE=arch\n"), Distro::Debian);
+    }
+
+    #[test]
+    fn id_like_uses_declared_order() {
+        assert_eq!(Distro::from_os_release("ID=custom\nID_LIKE=\"debian arch\"\n"), Distro::Debian);
+    }
 
     #[test]
     fn detects_arch_by_id() {

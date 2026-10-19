@@ -1,0 +1,54 @@
+
+running 27 tests
+test backend::tests::apk_is_always_non_interactive ... ok
+test backend::tests::apt_install_argv ... ok
+test backend::tests::apt_install_argv_assume_yes ... ok
+test backend::tests::dnf_remove_argv ... ok
+test backend::tests::dnf_remove_argv_without_assume_yes ... ok
+test backend::tests::emerge_ask_flag_is_inverted_but_semantics_match ... ok
+test backend::tests::is_installed_argv_uses_native_query_tools ... ok
+test backend::tests::nix_installs_by_channel_attribute_and_removes_by_name ... ok
+test backend::tests::only_nix_skips_root ... ok
+test backend::tests::pacman_install_argv ... ok
+test backend::tests::pacman_install_argv_assume_yes ... ok
+test backend::tests::search_argv_per_backend ... ok
+test backend::tests::xbps_argv ... ok
+test backend::tests::zypper_assume_yes_uses_non_interactive_global_flag ... ok
+test tests::backend_names_match_distro ... ok
+test tests::detects_alpine_nixos_void_gentoo ... ok
+test tests::detects_arch_by_id ... ok
+test tests::detects_arch_derivative_by_id_like ... ok
+test tests::detects_debian_derivative_by_id_like ... ok
+test tests::detects_fedora_family ... ok
+test tests::detects_suse_family ... ok
+test tests::detects_ubuntu_by_id ... ok
+test tests::display_names_are_human_readable ... ok
+test tests::id_like_uses_declared_order ... FAILED
+test tests::missing_file_is_unknown_not_a_panic ... ok
+test tests::recognized_id_precedes_id_like ... FAILED
+test tests::unknown_distro_carries_its_id ... ok
+
+failures:
+
+---- tests::id_like_uses_declared_order stdout ----
+
+thread 'tests::id_like_uses_declared_order' (36) panicked at crates/archon-distro/src/lib.rs:170:9:
+assertion `left == right` failed
+  left: Arch
+ right: Debian
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tests::recognized_id_precedes_id_like stdout ----
+
+thread 'tests::recognized_id_precedes_id_like' (38) panicked at crates/archon-distro/src/lib.rs:165:9:
+assertion `left == right` failed
+  left: Arch
+ right: Debian
+
+
+failures:
+    tests::id_like_uses_declared_order
+    tests::recognized_id_precedes_id_like
+
+test result: FAILED. 25 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
