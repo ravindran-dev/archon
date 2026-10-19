@@ -1,0 +1,22 @@
+
+running 5 tests
+test tests::extracts_hosts_from_source_lines ... ok
+test tests::ignores_local_sources_without_scheme ... ok
+test tests::missing_srcinfo_yields_empty_set ... ok
+test tests::strips_port_and_path_and_query ... ok
+test tests::vcs_https_sources_declare_their_network_host ... FAILED
+
+failures:
+
+---- tests::vcs_https_sources_declare_their_network_host stdout ----
+
+thread 'tests::vcs_https_sources_declare_their_network_host' (49) panicked at crates/archon/src/srcinfo.rs:93:9:
+missing declared Git source host: {}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::vcs_https_sources_declare_their_network_host
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

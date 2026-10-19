@@ -60,6 +60,12 @@ fn source_hosts(srcinfo: &str) -> HashSet<String> {
 }
 
 fn extract_host(url: &str) -> Option<String> {
+    // makepkg prefixes VCS source transports, e.g. git+https://. The
+    // underlying HTTP/HTTPS/FTP hostname is still a declared destination.
+    let url = match url.split_once('+') {
+        Some(("git" | "hg" | "svn" | "bzr", transport)) => transport,
+        _ => url,
+    };
     let rest = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
@@ -83,6 +89,16 @@ pkgbase = tty-clock
 
 pkgname = tty-clock
 ";
+
+    #[test]
+    fn vcs_https_sources_declare_their_network_host() {
+        let hosts = source_hosts(
+            "source = scanner::git+https://git.example.org/scanner.git#branch=main\n\
+             source_x86_64 = hg+https://hg.example.org/scanner\n"
+        );
+        assert!(hosts.contains("git.example.org"), "missing declared Git source host: {hosts:?}");
+        assert!(hosts.contains("hg.example.org"));
+    }
 
     #[test]
     fn extracts_hosts_from_source_lines() {
