@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::{Version, VersionCompareError, VersionParseError};
+use crate::version::{Version, VersionCompareError, VersionParseError, VersionBackend};
 
 /// A dependency specification as written in a PKGBUILD or repo database:
 /// `glibc`, `python>=3.11`, `libfoo.so=2-64`, ...
@@ -52,6 +52,10 @@ impl Dependency {
     /// Parse a dependency spec string, splitting on the first comparison
     /// operator. Operator search order matters: `>=`/`<=` before `>`/`<`.
     pub fn parse(spec: &str) -> Result<Self, DependencyParseError> {
+        Self::parse_with_backend(spec, VersionBackend::Alpm)
+    }
+
+    pub fn parse_with_backend(spec: &str, backend: VersionBackend) -> Result<Self, DependencyParseError> {
         // Strip optional-dependency description suffix (": description")
         // Some AUR packages include these in Depends[] by mistake.
         let spec = spec.split(": ").next().unwrap_or(spec).trim();
@@ -68,7 +72,7 @@ impl Dependency {
         ] {
             if let Some((name, ver)) = spec.split_once(token) {
                 let version =
-                    Version::parse(ver).map_err(|source| DependencyParseError::BadVersion {
+                    (match backend { VersionBackend::Alpm => Version::parse(ver), VersionBackend::Dpkg => Version::parse_dpkg(ver) }).map_err(|source| DependencyParseError::BadVersion {
                         spec: spec.to_owned(),
                         source,
                     })?;

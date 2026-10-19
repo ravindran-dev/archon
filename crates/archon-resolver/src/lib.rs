@@ -16,6 +16,7 @@
 pub mod graph;
 pub mod plan;
 pub mod suggest;
+mod search;
 
 pub use graph::ResolveError;
 pub use plan::{InstallPlan, PlannedPackage};
@@ -36,11 +37,13 @@ pub struct Resolver<'a> {
     /// so the resolver's mock-based tests stay unaffected unless a test
     /// opts in. See [`Resolver::prefer_installed`] for why this exists.
     prefer_installed: Option<&'a HashSet<String>>,
+    backend: archon_types::VersionBackend,
+    search_limit: usize,
 }
 
 impl<'a> Resolver<'a> {
     pub fn new(providers: Vec<&'a dyn PackageProvider>) -> Self {
-        Self { providers, prefer_installed: None }
+        Self { providers, prefer_installed: None, backend: archon_types::VersionBackend::Alpm, search_limit: 100_000 }
     }
 
     /// When a virtual dependency (`provides=()`) can be satisfied by more
@@ -69,203 +72,22 @@ impl<'a> Resolver<'a> {
     /// 3. Topologically sort the AUR subgraph for build order. Official
     ///    packages aren't ordered — they go to pacman as one transaction.
     pub fn resolve(&self, targets: &[String]) -> Result<InstallPlan, ResolveError> {
-        let mut frontier: Vec<(Dependency, String)> = Vec::new();
-        for t in targets {
-            let dep = Dependency::parse(t).map_err(|_| ResolveError::NotFound {
-                name: t.clone(),
-                required_by: TARGET.into(),
-            })?;
-            frontier.push((dep, TARGET.into()));
-        }
-
-        // pkgname -> resolved metadata.
-        let mut resolved: HashMap<String, PackageMeta> = HashMap::new();
-        // pkgname -> [(requirer, dep spec as written)]; drives both
-        // `required_by` display and version-conflict error messages.
-        let mut requirers: HashMap<String, Vec<(String, String)>> = HashMap::new();
-
-        while !frontier.is_empty() {
-            // Phase A: drop deps already satisfied by the resolved set, and
-            // surface constraint clashes against already-chosen packages.
-            let mut pending: Vec<(Dependency, String)> = Vec::new();
-            for (dep, requirer) in frontier.drain(..) {
-                match try_satisfy(&resolved, &mut requirers, &dep, &requirer) {
-                    Ok(true) => continue,
-                    Ok(false) => pending.push((dep, requirer)),
-                    Err(e) => {
-                        if let Some(alt) = dep.alternatives.first() {
-                            let mut next_alt = alt.clone();
-                            next_alt.alternatives = dep.alternatives[1..].to_vec();
-                            pending.push((next_alt, requirer));
-                        } else {
-                            return Err(e);
-                        }
-                    }
-                }
-            }
-            if pending.is_empty() {
-                break;
-            }
-
-            // Phase B: resolve each still-missing name, one provider tier at
-            // a time. Both exact-name AND provides() fallback are tried
-            // within a tier before falling through to the next, lower-
-            // precedence provider — otherwise a same-named package in a
-            // lower-precedence provider could win over a virtual package
-            // that a higher-precedence provider satisfies only via
-            // `provides=()`. (Concretely: an official-only dependency like
-            // `jack`, satisfied virtually by official `jack2`/`pipewire-
-            // jack`, must never fall through to an AUR package that merely
-            // happens to be named `jack` too — see the regression test.)
-            let mut names: Vec<String> = Vec::new();
-            for (dep, _) in &pending {
-                if !names.contains(&dep.name) {
-                    names.push(dep.name.clone());
-                }
-            }
-            let mut found: HashMap<String, PackageMeta> = HashMap::new();
-            let mut missing = names;
-            for provider in &self.providers {
-                if missing.is_empty() {
-                    break;
-                }
-                for meta in provider.get(&missing)? {
-                    missing.retain(|n| *n != meta.name);
-                    found.entry(meta.name.clone()).or_insert(meta);
-                }
-                if missing.is_empty() {
-                    break;
-                }
-                let mut newly_found = Vec::new();
-                for name in &missing {
-                    let deps_for_name: Vec<&Dependency> =
-                        pending.iter().map(|(d, _)| d).filter(|d| &d.name == name).collect();
-                    let mut candidates = Vec::new();
-                    for candidate in provider.find_providers(name)? {
-                        let mut matches = true;
-                        for dep in &deps_for_name {
-                            matches &= candidate.satisfies(dep)?;
-                        }
-                        if matches { candidates.push(candidate); }
-                    }
-                    if !candidates.is_empty() {
-                        // Compatibility comes before installed/alphabetical
-                        // preference. Keep conflicting candidates only when
-                        // every candidate conflicts, so selection still
-                        // reports a conflict rather than NotFound.
-                        let mut compatible = Vec::new();
-                        for candidate in &candidates {
-                            let mut conflicts = false;
-                            for existing in resolved.values() {
-                                conflicts |= package_conflict(candidate, existing)?.is_some();
-                            }
-                            if !conflicts { compatible.push(candidate.clone()); }
-                        }
-                        if !compatible.is_empty() { candidates = compatible; }
-                        candidates.sort_by(|a, b| a.name.cmp(&b.name));
-                        // Prefer an already-installed candidate over the
-                        // alphabetically-first one — see
-                        // `Resolver::prefer_installed`'s doc comment.
-                        let pick = self
-                            .prefer_installed
-                            .and_then(|installed| {
-                                candidates.iter().position(|c| installed.contains(&c.name))
-                            })
-                            .map(|i| candidates.remove(i))
-                            .unwrap_or_else(|| candidates.swap_remove(0));
-                        // Double-index: store under both the concrete name and the virtual
-                        // name we just looked up. If another pending dep in this same batch
-                        // asks for this package by its concrete name, Phase C needs to
-                        // find it there, not just under the virtual name.
-                        found.entry(pick.name.clone()).or_insert_with(|| pick.clone());
-                        found.entry(name.clone()).or_insert(pick);
-                        newly_found.push(name.clone());
-                    }
-                }
-                missing.retain(|n| !newly_found.contains(n));
-            }
-
-            // Phase C: select a package per pending dep; push its edges.
-            let mut next_frontier = Vec::new();
-            for (dep, requirer) in pending {
-                // A dep earlier in this very batch may have already
-                // resolved a package that satisfies — or conflicts with —
-                // this one; recheck with the same logic as Phase A.
-                match try_satisfy(&resolved, &mut requirers, &dep, &requirer) {
-                    Ok(true) => continue,
-                    Err(_) if !dep.alternatives.is_empty() => {
-                        let mut next_alt = dep.alternatives[0].clone();
-                        next_alt.alternatives = dep.alternatives[1..].to_vec();
-                        next_frontier.push((next_alt, requirer));
-                        continue;
-                    }
-                    Err(e) => return Err(e),
-                    Ok(false) => {}
-                }
-
-                let exact = found.get(&dep.name);
-                let selected = match exact {
-                    Some(meta) if meta.satisfies(&dep)? => Some(meta.clone()),
-                    _ => None,
-                };
-                let Some(meta) = selected else {
-                    if let Some(alt) = dep.alternatives.first() {
-                        let mut next_alt = alt.clone();
-                        next_alt.alternatives = dep.alternatives[1..].to_vec();
-                        next_frontier.push((next_alt, requirer));
-                        continue;
-                    }
-                    return Err(match exact {
-                        // The name exists but no version/provide satisfies.
-                        Some(meta) => ResolveError::NoSatisfyingVersion {
-                            name: meta.name.clone(),
-                            dep: dep.to_string(),
-                            required_by: requirer,
-                            available: meta.version.to_string(),
-                        },
-                        None => ResolveError::NotFound {
-                            name: dep.name.clone(),
-                            required_by: requirer,
-                        },
-                    });
-                };
-
-                // Check if the selected meta conflicts with anything already resolved.
-                // If it does, and we have an alternative, fall back to it!
-                let mut conflict = None;
-                for existing in resolved.values() {
-                    if let Some(error) = package_conflict(&meta, existing)? { conflict = Some(error); break; }
-                }
-
-                if let Some(error) = conflict {
-                    if let Some(alt) = dep.alternatives.first() {
-                        let mut next_alt = alt.clone();
-                        next_alt.alternatives = dep.alternatives[1..].to_vec();
-                        next_frontier.push((next_alt, requirer));
-                        continue;
-                    }
-                    // Do not enqueue dependencies of a rejected candidate:
-                    // their errors can hide the actual package conflict.
-                    return Err(error);
-                }
-
-                note_requirer(&mut requirers, &meta.name, &requirer, &dep);
-                let mut edges: Vec<&Dependency> = meta.depends.iter().collect();
-                if meta.is_aur() {
-                    // Build-time deps are install-order edges for AUR pkgs.
-                    edges.extend(meta.make_depends.iter());
-                }
-                for edge in edges {
-                    next_frontier.push((edge.clone(), meta.name.clone()));
-                }
-                resolved.insert(meta.name.clone(), meta);
-            }
-            frontier = next_frontier;
-        }
-
-        check_conflicts(&resolved)?;
-        build_plan(resolved, &requirers)
+        search::resolve(self, targets)
     }
+
+    /// Select version semantics for target constraints. Arch is the default;
+    /// callers resolving Debian metadata must explicitly choose Dpkg.
+    pub fn with_version_backend(mut self, backend: archon_types::VersionBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    /// Bound search work; exhaustion is an explicit error, never NotFound.
+    pub fn with_search_limit(mut self, steps: usize) -> Self {
+        self.search_limit = steps;
+        self
+    }
+
 }
 
 /// Attempt to satisfy `dep` purely from what's already resolved.
@@ -607,11 +429,103 @@ mod tests {
     }
 
     #[test]
+    fn backtracks_alternative_after_late_conflict_without_leaked_dependencies() {
+        let mut app = pkg(false, "app", "1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("bad").unwrap();
+        dep.alternatives.push(Dependency::parse("good").unwrap());
+        app.depends.push(dep);
+        let plan = resolve(vec![
+            app,
+            pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
+            pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
+            pkg(false, "private-child", "1", &[], &[], &[], &[]),
+            pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
+            pkg(false, "good", "1", &[], &[], &[], &[]),
+        ], vec![], &["app", "later"]).unwrap();
+        assert_eq!(names(&plan.official), ["app", "blocker", "good", "later"]);
+    }
+
+    #[test]
+    fn backtracks_virtual_provider_after_late_conflict() {
+        let plan = resolve(vec![
+            pkg(false, "app", "1", &["tls-api"], &[], &[], &[]),
+            pkg(false, "later", "1", &["blocker"], &[], &[], &[]),
+            pkg(false, "a-provider", "1", &["private-child"], &[], &[], &["tls-api"]),
+            pkg(false, "private-child", "1", &[], &[], &[], &[]),
+            pkg(false, "blocker", "1", &[], &[], &["a-provider"], &[]),
+            pkg(false, "z-provider", "1", &[], &[], &[], &["tls-api"]),
+        ], vec![], &["app", "later"]).unwrap();
+        assert_eq!(names(&plan.official), ["app", "blocker", "later", "z-provider"]);
+    }
+
+    #[test]
     fn mixed_backend_resolution_returns_typed_error() {
         let mut candidate = pkg(false, "tool", "1", &[], &[], &[], &[]);
         candidate.version = Version::parse_dpkg("1").unwrap();
         let result = resolve(vec![candidate], vec![], &["tool>=1"]);
         assert!(matches!(result, Err(ResolveError::Version(_))));
+    }
+
+    #[test]
+    fn backtracking_restores_already_selected_dependencies() {
+        let mut app = pkg(false, "app", "1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("bad").unwrap();
+        dep.alternatives.push(Dependency::parse("good").unwrap());
+        app.depends.push(dep);
+        let plan = resolve(vec![
+            app,
+            pkg(false, "later", "1", &["middle"], &[], &[], &[]),
+            pkg(false, "middle", "1", &["blocker"], &[], &[], &[]),
+            pkg(false, "bad", "1", &["private-child"], &[], &[], &[]),
+            pkg(false, "private-child", "1", &[], &[], &[], &[]),
+            pkg(false, "blocker", "1", &[], &[], &["bad"], &[]),
+            pkg(false, "good", "1", &[], &[], &[], &[]),
+        ], vec![], &["app", "later"]).unwrap();
+        assert_eq!(names(&plan.official), ["app", "blocker", "good", "later", "middle"]);
+    }
+
+    #[test]
+    fn backtracking_recovers_from_missing_transitive_dependency() {
+        let mut app = pkg(false, "app", "1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("bad").unwrap();
+        dep.alternatives.push(Dependency::parse("good").unwrap());
+        app.depends.push(dep);
+        let plan = resolve(vec![app,
+            pkg(false, "bad", "1", &["unavailable"], &[], &[], &[]),
+            pkg(false, "good", "1", &[], &[], &[], &[]),
+        ], vec![], &["app"]).unwrap();
+        assert_eq!(names(&plan.official), ["app", "good"]);
+    }
+
+    #[test]
+    fn backtracking_recovers_from_aur_cycle() {
+        let mut app = pkg(true, "app", "1", &[], &[], &[], &[]);
+        let mut dep = Dependency::parse("cyclic").unwrap();
+        dep.alternatives.push(Dependency::parse("good").unwrap());
+        app.depends.push(dep);
+        let plan = resolve(vec![], vec![app,
+            pkg(true, "cyclic", "1", &["app"], &[], &[], &[]),
+            pkg(true, "good", "1", &[], &[], &[], &[]),
+        ], &["app"]).unwrap();
+        assert_eq!(names(&plan.aur), ["good", "app"]);
+    }
+
+    #[test]
+    fn search_exhaustion_is_explicit() {
+        let provider = MockProvider::official(vec![pkg(false, "app", "1", &["lib"], &[], &[], &[])]);
+        let result = Resolver::new(vec![&provider]).with_search_limit(1).resolve(&["app".into()]);
+        assert!(matches!(result, Err(ResolveError::SearchLimit { .. })));
+    }
+
+    #[test]
+    fn debian_target_constraints_use_dpkg_backend() {
+        let mut candidate = pkg(false, "tool", "1", &[], &[], &[], &[]);
+        candidate.source = PackageSource::Apt;
+        candidate.version = Version::parse_dpkg("1.0~rc1").unwrap();
+        let provider = MockProvider::official(vec![candidate]);
+        let plan = Resolver::new(vec![&provider]).with_version_backend(archon_types::VersionBackend::Dpkg)
+            .resolve(&["tool<1.0".into()]).unwrap();
+        assert_eq!(names(&plan.official), ["tool"]);
     }
 
     #[test]

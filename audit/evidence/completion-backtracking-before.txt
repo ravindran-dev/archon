@@ -1,0 +1,26 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.QGeTvy/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.QGeTvy/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.18s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 2 tests
+
+thread 'tests::backtracks_virtual_provider_after_late_conflict' (371) panicked at crates/archon-resolver/src/lib.rs:623:39:
+called `Result::unwrap()` on an `Err` value: PackageConflict { a: "blocker", b: "a-provider", declared_by: "blocker" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'tests::backtracks_alternative_after_late_conflict_without_leaked_dependencies' (370) panicked at crates/archon-resolver/src/lib.rs:610:39:
+called `Result::unwrap()` on an `Err` value: PackageConflict { a: "blocker", b: "bad", declared_by: "blocker" }
+test tests::backtracks_virtual_provider_after_late_conflict ... FAILED
+test tests::backtracks_alternative_after_late_conflict_without_leaked_dependencies ... FAILED
+
+failures:
+
+failures:
+    tests::backtracks_alternative_after_late_conflict_without_leaked_dependencies
+    tests::backtracks_virtual_provider_after_late_conflict
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`

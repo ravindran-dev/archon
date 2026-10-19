@@ -44,6 +44,9 @@ pub enum ResolveError {
     #[error("circular dependency among AUR packages: {}", cycle.join(" -> "))]
     DependencyCycle { cycle: Vec<String> },
 
+    #[error("dependency search exceeded its work limit after {steps} steps")]
+    SearchLimit { steps: usize },
+
     #[error(transparent)]
     Version(#[from] archon_types::VersionCompareError),
 
