@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'report::tests::empty_monitor_report_does_not_authorize_installation' (45) panicked at /home/ravi/archon/crates/archon-monitor/src/report.rs:57:9:
+capturing no events is inconclusive, not a clean build
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test report::tests::empty_monitor_report_does_not_authorize_installation ... FAILED
+
+failures:
+
+failures:
+    report::tests::empty_monitor_report_does_not_authorize_installation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+

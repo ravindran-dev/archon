@@ -19,7 +19,7 @@ pub struct BuildReport {
 
 impl BuildReport {
     pub fn is_clean(&self) -> bool {
-        self.flagged.is_empty()
+        self.total_events > 0 && self.flagged.is_empty()
     }
 }
 
@@ -27,6 +27,13 @@ impl std::fmt::Display for BuildReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Build report for {}", self.package)?;
         writeln!(f, "  {} syscall event(s) observed", self.total_events)?;
+        if self.total_events == 0 && self.flagged.is_empty() {
+            writeln!(
+                f,
+                "  monitoring inconclusive: no syscall events captured; installation blocked"
+            )?;
+            return Ok(());
+        }
         if self.is_clean() {
             writeln!(f, "  no policy violations — nothing flagged")?;
             return Ok(());
@@ -50,6 +57,20 @@ impl std::fmt::Display for BuildReport {
 mod tests {
     use super::*;
     use archon_monitor_common::EventKind;
+
+    #[test]
+    fn empty_monitor_report_does_not_authorize_installation() {
+        let report = BuildReport {
+            package: "scanner".into(),
+            total_events: 0,
+            flagged: vec![],
+        };
+        assert!(
+            !report.is_clean(),
+            "capturing no events is inconclusive, not a clean build"
+        );
+        assert!(report.to_string().contains("inconclusive"));
+    }
 
     #[test]
     fn clean_report_says_so() {

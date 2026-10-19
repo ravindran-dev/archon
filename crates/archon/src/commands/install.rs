@@ -730,11 +730,10 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
 
         ui::print_report(&report);
         if !report.is_clean() {
-            println!(
-                "{} not installed — see flags above",
-                color::red(&pkg.meta.name)
+            bail!(
+                "refusing to install AUR base {}: monitoring reported violations or captured no events",
+                pkg.meta.build_base()
             );
-            continue;
         }
 
         let pkg_files = built_group_files(&dest, &group)?;
