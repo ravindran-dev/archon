@@ -88,5 +88,6 @@ fn main() {
         println!("ALL MATCH!");
     } else {
         println!("{} mismatches found.", mismatches);
+        std::process::exit(1);
     }
 }
