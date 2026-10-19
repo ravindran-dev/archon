@@ -1,0 +1,21 @@
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.F2i6wm/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.F2i6wm/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.13s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 1 test
+
+thread 'tests::all_virtual_providers_conflict_reports_conflict_before_dependencies' (357) panicked at crates/archon-resolver/src/lib.rs:558:9:
+Err(NotFound { name: "unavailable", required_by: "a-tls" })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tests::all_virtual_providers_conflict_reports_conflict_before_dependencies ... FAILED
+
+failures:
+
+failures:
+    tests::all_virtual_providers_conflict_reports_conflict_before_dependencies
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p archon-resolver --lib`

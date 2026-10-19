@@ -1,0 +1,91 @@
+    Blocking waiting for file lock on package cache
+     Locking 10 packages to highest compatible versions
+   Compiling archon-types v0.2.0 (/tmp/archon-resolver-check.IYyT1H/crates/archon-types)
+   Compiling archon-resolver v0.2.0 (/tmp/archon-resolver-check.IYyT1H/crates/archon-resolver)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.02s
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_resolver-f93912bda7b36f67)
+
+running 29 tests
+test suggest::tests::test_no_suggestions_for_wildly_different_strings ... ok
+test suggest::tests::test_suggest_obvious_typos ... ok
+test tests::aur_makedepends_ordered_before_dependent ... ok
+test tests::aur_build_order_is_dependency_first ... ok
+test tests::not_found_names_the_dependent ... ok
+test tests::official_cycles_are_tolerated ... ok
+test tests::official_shadows_aur_same_name ... ok
+test tests::all_virtual_providers_conflict_reports_conflict_before_dependencies ... ok
+test tests::aur_cycle_is_reported_with_path ... ok
+test tests::prefer_installed_avoids_unnecessary_conflicting_swap ... ok
+test tests::targets_have_empty_required_by ... ok
+test tests::unsatisfiable_version_reports_whats_available ... ok
+test tests::version_conflict_names_both_requirers ... ok
+test tests::provides_resolved_package_is_also_found_by_concrete_name_in_same_batch ... ok
+test tests::alternatives_fallback_if_primary_fails ... ok
+test tests::official_provides_beats_aur_exact_name_match ... ok
+test tests::versioned_provide_checked_against_constraint ... ok
+test tests::versioned_target_spec_is_honored ... ok
+test tests::aur_alternative_is_built_before_its_dependent ... ok
+test tests::aur_package_named_target_does_not_create_spurious_edges ... ok
+test tests::alternatives_fallback_under_conflict ... ok
+test tests::aur_package_pulls_official_deps_and_makedeps ... ok
+test tests::linear_chain_resolves_fully ... ok
+test tests::self_conflict_is_ignored ... ok
+test tests::virtual_provider_respects_reverse_conflict_even_when_installed ... ok
+test tests::declared_conflicts_are_fatal ... ok
+test tests::diamond_appears_once ... ok
+test tests::virtual_package_resolved_via_provides ... ok
+test tests::virtual_provider_avoids_conflict_with_selected_package ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/tmp/archon-audit-resolver-target/debug/deps/archon_types-810f58dc673882ba)
+
+running 27 tests
+test dependency::tests::bare_provide_never_satisfies_versioned_dep ... ok
+test dependency::tests::constraint_ops_match_vercmp ... ok
+test dependency::tests::provide_name_must_match ... ok
+test dependency::tests::parses_unversioned ... ok
+test dependency::tests::strips_colon_description_suffix ... ok
+test dependency::tests::unconstrained_dep_accepts_anything ... ok
+test dependency::tests::versioned_provide_satisfies_versioned_dep ... ok
+test package::tests::satisfies_by_exact_name_and_version ... ok
+test package::tests::satisfies_via_provides ... ok
+test dependency::tests::ge_is_not_gt_plus_eq ... ok
+test dependency::tests::parses_ge_constraint ... ok
+test version::tests::debian_tilde_sorts_older_than_anything ... ok
+test version::tests::leading_zeros_are_insignificant ... ok
+test dependency::tests::eq_constraint_without_pkgrel_matches_any_pkgrel ... ok
+test version::tests::man_page_alpha_chain ... ok
+test version::tests::man_page_numeric_chain ... ok
+test version::tests::numeric_segment_beats_alphabetic ... ok
+test version::tests::parses_bare_version ... ok
+test version::tests::parses_epoch_ver_rel ... ok
+test version::tests::pkgrel_breaks_ties ... ok
+test version::tests::pkgrel_with_subrelease ... ok
+test version::tests::separator_runs_compare_by_length ... ok
+test version::tests::missing_pkgrel_matches_any_pkgrel ... ok
+test version::tests::display_roundtrips ... ok
+test version::tests::numeric_compares_by_value_not_lexically ... ok
+test version::tests::dpkg_version_comparisons ... ok
+test version::tests::epoch_dominates_everything ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify_dpkg.rs (/tmp/archon-audit-resolver-target/debug/deps/verify_dpkg-6b538ebfda907eb1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests archon_resolver
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests archon_types
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

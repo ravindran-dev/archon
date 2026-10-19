@@ -223,26 +223,18 @@ impl<'a> Resolver<'a> {
 
                 // Check if the selected meta conflicts with anything already resolved.
                 // If it does, and we have an alternative, fall back to it!
-                let mut conflict_found = false;
-                for existing in resolved.values() {
-                    if meta.conflicts.iter().any(|c| c.name != meta.name && existing.satisfies(c)) {
-                        conflict_found = true;
-                        break;
-                    }
-                    if existing.conflicts.iter().any(|c| c.name != existing.name && meta.satisfies(c)) {
-                        conflict_found = true;
-                        break;
-                    }
-                }
+                let conflict = resolved.values().find_map(|existing| package_conflict(&meta, existing));
 
-                if conflict_found {
+                if let Some(error) = conflict {
                     if let Some(alt) = dep.alternatives.first() {
                         let mut next_alt = alt.clone();
                         next_alt.alternatives = dep.alternatives[1..].to_vec();
                         next_frontier.push((next_alt, requirer));
                         continue;
                     }
-                    // If no alternative exists, proceed so that `check_conflicts` can emit a clean error at the end.
+                    // Do not enqueue dependencies of a rejected candidate:
+                    // their errors can hide the actual package conflict.
+                    return Err(error);
                 }
 
                 note_requirer(&mut requirers, &meta.name, &requirer, &dep);
@@ -586,6 +578,20 @@ mod tests {
         let plan = Resolver::new(vec![&official]).prefer_installed(&installed)
             .resolve(&["scanner".into(), "openssl".into()]).unwrap();
         assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
+    }
+
+    #[test]
+    fn all_virtual_providers_conflict_reports_conflict_before_dependencies() {
+        let result = resolve(
+            vec![
+                pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
+                pkg(false, "openssl", "1", &[], &[], &[], &[]),
+                pkg(false, "a-tls", "1", &["unavailable"], &[], &["openssl"], &["tls-api"]),
+            ],
+            vec![],
+            &["scanner", "openssl"],
+        );
+        assert!(matches!(result, Err(ResolveError::PackageConflict { .. })), "{result:?}");
     }
 
     #[test]
