@@ -20,9 +20,9 @@
 //!    - AUR: `git clone` each package's AUR repo, then build it inside the
 //!      bubblewrap sandbox ([`archon_sandbox`]).
 //!
-//! Without `--report`, the AUR path stops after a successful sandboxed
-//! build (Phase 2 behavior) — archon tells you where the package tarball
-//! landed but does not install it.
+//! Without `--report`, AUR packages are built in bubblewrap and installed
+//! via pacman in dependency order. eBPF monitoring is optional; its absence
+//! is stated before confirmation.
 //!
 //! With `--report`, archon additionally monitors the build with eBPF and
 //! only offers to install the result if nothing was flagged. That monitor
@@ -259,6 +259,10 @@ fn run_with_history(
         require_monitoring_privileges()?;
     }
 
+    if !report && !plan.aur.is_empty() {
+        println!("AUR builds use bubblewrap without eBPF monitoring (enable with --report).");
+    }
+
     if !yes && !ui::confirm("\nProceed with installation?")? {
         println!("aborted — nothing was changed.");
         return Ok(());
@@ -492,8 +496,9 @@ pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_dir: &Path, pkg_name:
     Ok(())
 }
 
-/// Phase 2 path: clone + sandboxed build, no monitoring. Stops after a
-/// successful build; installing is only offered on the `--report` path.
+/// Build and install in dependency order so each AUR dependency is
+/// available before building its dependents. Pacman owns installation,
+/// privilege elevation and its transaction confirmation.
 fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     ensure_bwrap()?;
     let build_root = build_dir()?;
@@ -501,22 +506,30 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
 
     println!();
-    let mut built = Vec::new();
     for pkg in pkgs {
         let dest = clone_if_needed(aur, pkg, &build_root)?;
         let runner = SandboxRunner::new(&dest).capture_output(true);
         build_in_sandbox(&runner, &dest, &pkg.meta.name)?;
-        built.push(dest);
-    }
 
-    println!("\nBuilt {} AUR package(s):", built.len());
-    for dest in &built {
-        println!("  {}", dest.display());
+        let files = find_package_files(&dest, &pkg.meta.name)?;
+        if files.len() != 1 {
+            bail!(
+                "expected exactly one built package archive for {} in {}, found {}; \
+                 refusing installation of missing or ambiguous output",
+                pkg.meta.name, dest.display(), files.len()
+            );
+        }
+        println!("==> Installing {} via pacman -U", pkg.meta.name);
+        let status = Command::new("sudo")
+            .args(["pacman", "-U", "--needed", "--"])
+            .arg(&files[0])
+            .status()
+            .context("failed to execute sudo pacman -U")?;
+        if !status.success() {
+            bail!("pacman -U exited with {status} for {}", pkg.meta.name);
+        }
     }
-    println!(
-        "\nNot installed. Re-run with `--report` to have archon monitor the build with \
-         eBPF and offer to install once it confirms nothing was flagged."
-    );
+    println!("\nInstalled {} AUR package(s).", pkgs.len());
     Ok(())
 }
 
@@ -779,7 +792,12 @@ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<Path
         let name = name.to_string_lossy();
         // The base package's tarball only — not `<name>-debug-*` splits,
         // which pacman would need installed separately and deliberately.
-        if name.starts_with(&format!("{pkg_name}-")) && name.contains(".pkg.tar") && !name.contains("-debug-") {
+        if name.starts_with(&format!("{pkg_name}-"))
+            && name.contains(".pkg.tar")
+            && !name.ends_with(".sig")
+            && !name.contains("-debug-")
+            && entry.file_type()?.is_file()
+        {
             files.push(entry.path());
         }
     }
