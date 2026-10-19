@@ -382,7 +382,7 @@ fn typo_correction_respects_max_depth_when_suggestion_also_not_found() {
 }
 
 #[test]
-fn typo_correction_suggests_debian_packages_from_mock_apt_lists() {
+fn arch_typo_correction_excludes_debian_packages_from_mock_apt_lists() {
     use std::fs::File;
     use std::io::Write;
     let (_dir, sync_dir) = fixture_sync_dir(&[
@@ -411,7 +411,9 @@ fn typo_correction_suggests_debian_packages_from_mock_apt_lists() {
     );
 
     assert!(!out.status.success());
-    assert!(out.stderr.contains("package not found, did you mean: ubuntu-restricted-extras"), "got: {}", out.stderr);
+    assert!(out.stderr.contains("not found"), "got: {}", out.stderr);
+    assert!(!out.stderr.contains("ubuntu-restricted-extras"), "Arch suggestions must exclude apt candidates: {}", out.stderr);
+    assert!(!out.stderr.contains("panicked"), "got: {}", out.stderr);
 }
 
 #[test]

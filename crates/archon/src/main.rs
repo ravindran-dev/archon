@@ -8,6 +8,7 @@
 //! - `--dry-run` stops after printing the plan, guaranteed side-effect free.
 
 mod color;
+mod correction;
 mod commands;
 mod pgp;
 mod search;

@@ -132,7 +132,7 @@ if '--noextract' in sys.argv:
             assert result.returncode != 0 and not calls, 'failed build/missing output must not install'
         print(f'PASS: {case}')
 
-def compile_direct_harness(directory):
+def compile_direct_harness(directory, entry_wrapper=None):
     """Copy the production module unchanged, append only a private-function caller.
 
     Other CLI modules and dependencies are the actual source/compiled rlibs.
@@ -164,9 +164,11 @@ pub fn audit_unmonitored_install() -> Result<()> {
     }
 }
 """
+    if entry_wrapper is not None:
+        wrapper = entry_wrapper
     (directory / 'install.rs').write_text(production + wrapper)
     modules = ''.join(f'#[path = {json.dumps(str(src / (name + ".rs")))}] mod {name};\n'
-                      for name in ['color', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
+                      for name in ['color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
     modules += ('mod commands {\n'
                 f'#[path = {json.dumps(str(directory / "install.rs"))}] pub mod install;\n'
                 f'#[path = {json.dumps(str(src / "commands/subprocess.rs"))}] pub mod subprocess;\n'

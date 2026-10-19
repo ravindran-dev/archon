@@ -1,0 +1,6 @@
+$ direct-production-typo-path 'éé'
+exit: 0
+PASS: unicode
+$ direct-production-typo-path 'debianonl'
+exit: 0
+PASS: backend-isolation

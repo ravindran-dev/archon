@@ -209,18 +209,9 @@ fn run_with_history(
                     pos = p;
                 }
                 
-                let mut current_chain = correction_history.get(&pos).cloned().unwrap_or_default();
-                if current_chain.is_empty() {
-                    current_chain.push(name.clone());
-                }
-
-                if current_chain.len() >= 3 {
-                    let chain_str = current_chain.join(" -> ");
-                    bail!(
-                        "Recursion depth exceeded for package '{}'. Attempted corrections: {} -> {}",
-                        current_chain[0], chain_str, name
-                    );
-                }
+                let mut current_chain = crate::correction::chain(
+                    correction_history.get(&pos).map(Vec::as_slice).unwrap_or_default(), &name
+                ).map_err(anyhow::Error::msg)?;
 
                 if let Some(corrected) = handle_typo_correction(&official, &aur, &name)? {
                     current_chain.push(corrected.clone());
@@ -320,17 +311,10 @@ fn handle_typo_correction(official: &OfficialRepos, aur: &AurClient, typo: &str)
     }
     
     // 2. AUR (fetch by prefix if long enough)
-    let prefix = if typo.len() >= 3 { &typo[..3] } else { typo };
+    let prefix = crate::correction::search_prefix(typo);
     if let Ok(aur_hits) = aur.search_by_name(prefix) {
         for hit in aur_hits {
             candidates.push(PackageRef { name: hit.name, source: "aur".to_string(), repo: None });
-        }
-    }
-    // 3. apt
-    let apt_dir = std::env::var("ARCHON_APT_LISTS_DIR").unwrap_or_else(|_| "/var/lib/apt/lists".to_string());
-    if let Ok(apt) = archon_repo::deb_index::AptLists::load_dir(std::path::Path::new(&apt_dir)) {
-        for (name, _) in apt.all_package_names() {
-            candidates.push(PackageRef { name, source: "apt".to_string(), repo: None });
         }
     }
     let suggs = suggest(typo, &candidates, 5);

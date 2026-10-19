@@ -1,0 +1,12 @@
+$ direct-production-typo-path 'éé'
+
+thread 'main' (44) panicked at /tmp/archon-typos-ke6d5h67/install.rs:323:44:
+end byte index 3 is not a char boundary; it is inside 'é' (bytes 2..4 of string)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+exit: 101
+FAIL: unicode
+$ direct-production-typo-path 'debianonl'
+package not found, did you mean: debianonly? re-run interactively or with the exact name
+exit: 1
+FAIL: backend-isolation
+Regression failures: unicode, backend-isolation
