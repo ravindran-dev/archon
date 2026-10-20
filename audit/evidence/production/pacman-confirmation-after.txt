@@ -1,0 +1,29 @@
+```text
+$ cargo test -p archon-cli --bin archon-install-helper --locked --offline
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+     Running unittests src/bin/archon-install-helper.rs
+
+running 6 tests
+test handoff::tests::traversal_options_and_signature_names_are_rejected_and_cleaned ... ok
+test handoff::tests::zero_sized_signature_is_rejected ... ok
+test handoff::tests::signed_transaction_is_private_and_keeps_adjacent_signature ... ok
+test handoff::tests::duplicate_archives_are_rejected ... ok
+test handoff::tests::truncated_or_trailing_data_never_leaves_staging ... ok
+test tests::pacman_confirmation_reads_from_separate_input_stream ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored
+
+$ cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+
+$ cargo fmt --check
+(exit 0; no output)
+
+$ target/release/archon-install-helper --version
+archon-install-helper 0.2.0
+Receives bounded package data on stdin; administrator use only.
+```
+
+The updated user-local companion binary is at `~/.local/bin/archon-install-helper`.
+The root-owned helper must still be replaced with `archon setup-helper` before
+the fix is active for privileged installs.

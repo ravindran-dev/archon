@@ -177,6 +177,9 @@ monitoring still need successful end-to-end runs before production use.
   managers do not use Archon’s AUR build/monitor pipeline.
 - Install/remove reject empty package names and names beginning with `-` so
   CLI input cannot be consumed as a native package-manager option.
+- The install helper gives pacman the controlling terminal for its transaction
+  prompt; package bytes remain on the helper protocol stream. The root-owned
+  helper must be refreshed with `archon setup-helper` for this fix to take effect.
 - PGP imports now execute inside bwrap as the build user, with strict
   fingerprints and GPG options disabled. The parent never modifies the build
   keyring. Real unprivileged bwrap/GPG preparation is tested; privileged user

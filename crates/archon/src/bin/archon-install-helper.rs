@@ -3,7 +3,11 @@
 #[path = "../handoff.rs"]
 mod handoff;
 
-use std::process::Command;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use anyhow::Context;
 use std::sync::atomic::Ordering;
 
 extern "C" fn interrupt(_: libc::c_int) {
@@ -39,17 +43,14 @@ fn main() -> anyhow::Result<()> {
     }
     let base = handoff::prepare_root()?;
     let transaction = handoff::StagedTransaction::receive(&base, &mut std::io::stdin().lock())?;
-    let mut child = Command::new("/usr/bin/pacman")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("LANG", "C.UTF-8")
-        .env("HOME", "/root")
-        .args(["--config", "/etc/pacman.conf", "-U", "--needed", "--"])
-        .args(transaction.packages())
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()?;
+    let terminal = File::open("/dev/tty")
+        .context("cannot open the controlling terminal for pacman's confirmation prompt")?;
+    let mut child = pacman_command(
+        Path::new("/usr/bin/pacman"),
+        transaction.packages(),
+        terminal,
+    )
+    .spawn()?;
     let mut forwarded = false;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -66,4 +67,45 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!(status.success(), "pacman failed with {status}");
     anyhow::ensure!(!forwarded, "installation interrupted");
     Ok(())
+}
+
+fn pacman_command(pacman: &Path, packages: &[PathBuf], terminal: File) -> Command {
+    let mut command = Command::new(pacman);
+    command
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("LANG", "C.UTF-8")
+        .env("HOME", "/root")
+        .args(["--config", "/etc/pacman.conf", "-U", "--needed", "--"])
+        .args(packages)
+        // Helper stdin carries the package transaction; pacman must read its
+        // confirmation response from the caller's controlling terminal.
+        .stdin(Stdio::from(terminal))
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn pacman_confirmation_reads_from_separate_input_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let pacman = dir.path().join("pacman-mock");
+        std::fs::write(
+            &pacman,
+            "#!/bin/sh\nread answer || exit 17\n[ \"$answer\" = y ]\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&pacman, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let response = dir.path().join("terminal-input");
+        std::fs::write(&response, b"y\n").unwrap();
+        let terminal = File::open(response).unwrap();
+
+        let status = pacman_command(&pacman, &[], terminal).status().unwrap();
+        assert!(status.success(), "mock pacman exited with {status}");
+    }
 }

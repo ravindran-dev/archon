@@ -53,6 +53,22 @@ changes. The previously recorded 229-test user workspace pass predates these
 last fail-closed/argument-guard commits; a complete suite rerun is still
 needed. This agent sandbox cannot bind localhost for the HTTP mocks.
 
+### Pacman confirmation input
+
+The user's `archon install spotify` transcript showed a successful build,
+followed by pacman's `[Y/n]` prompt and exit status 1. The helper had already
+consumed its stdin as the bounded package-data protocol, then launched pacman
+with that exhausted stream as stdin. The helper now opens `/dev/tty` and gives
+that terminal only to pacman; the package protocol remains on helper stdin.
+A fake-pacman regression failed first with exit 17 on EOF and passes when it
+receives `y` from the separate stream. Six helper tests, strict clippy, and
+formatting pass. Raw before/after evidence:
+[before](audit/evidence/production/pacman-confirmation-before.txt),
+[after](audit/evidence/production/pacman-confirmation-after.txt). The updated
+helper is copied to the user's local bin directory, but the root-owned helper
+replacement and a real pacman transaction remain UNVERIFIED pending
+`archon setup-helper` and an interactive install.
+
 ### User-run verification follow-up (2026-10-20)
 
 The initial user run showed 33 CLI tests passing and one failure in
@@ -262,6 +278,7 @@ fix commit. Coverage is restricted to the cases actually exercised.
 | High / H,F | archon/src/pgp.rs:64,99; commands/install.rs:821 | Package-controlled .gnupg symlink is followed and its target chmodded; monitored caller runs helper as root before build privilege drop | fixed / 2baa64c: no host keyring writes or GPG subprocess; live sandbox/drop verification UNVERIFIED |
 | High / H | archon/src/commands/install.rs, archive selection/install | User-writable archive may change between pacman -Qp and privileged pacman -U | fixed in source: sealed immutable snapshot shared by validation and installation; real privileged transaction UNVERIFIED |
 | High / H | archon/src/commands/install.rs; commands/remove.rs | Leading-dash CLI package strings were passed as native package-manager options | fixed / d1081ba; fail-closed install/remove regression and raw output in audit/evidence/production/leading-dash-*.txt |
+| Medium / G | archon/src/bin/archon-install-helper.rs | Pacman inherited helper stdin after it had been consumed by the package protocol, so an interactive confirmation saw EOF and declined | fixed in current source; regression failed first, six helper tests pass; root helper update and live pacman transaction UNVERIFIED |
 | Medium / D | archon-resolver/src/lib.rs:215 | Chosen AUR alternative edges absent from build order | fixed / bb5bad9 |
 | Medium / D | archon-resolver/src/search.rs:187 | Incompatible virtual providers accepted; dependencies of conflict-rejected candidates produced misleading NotFound | fixed / 49c11c2, 3cbb779 |
 | Medium / F | archon/src/srcinfo.rs | git+https source hosts omitted from monitor allowlist | fixed for tested transports / 7c3f1bf |
