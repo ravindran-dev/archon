@@ -1,0 +1,6 @@
+$ cargo test -p archon-cli --test cli empty_sync_database_fixture_is_a_valid_plain_tar --locked -- --exact --nocapture
+running 1 test
+thread 'empty_sync_database_fixture_is_a_valid_plain_tar' panicked:
+empty fixture database is still a valid tar archive: UnknownCompression { path: "/tmp/.tmptiU4wr/core.db" }
+test empty_sync_database_fixture_is_a_valid_plain_tar ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored

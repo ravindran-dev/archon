@@ -69,6 +69,18 @@ pub fn fixture_sync_dir(pkgs: &[FixturePkg]) -> (tempfile::TempDir, PathBuf) {
             )
             .expect("append fixture package");
     }
+    if pkgs.is_empty() {
+        // A zero-block tar has no USTAR magic for the production reader to
+        // sniff. Add an ignored, zero-length entry so the empty database is
+        // still a structurally valid plain tar without adding a package.
+        let mut header = tar::Header::new_ustar();
+        header.set_size(0);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "fixture-marker", std::io::empty())
+            .expect("append empty-database tar marker");
+    }
     let bytes = builder.into_inner().expect("finish tar");
     std::fs::write(&db_path, bytes).expect("write fixture db");
 

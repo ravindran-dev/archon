@@ -465,6 +465,14 @@ fn typo_correction_respects_max_depth_when_suggestion_also_not_found() {
 }
 
 #[test]
+fn empty_sync_database_fixture_is_a_valid_plain_tar() {
+    let (_keepalive, sync_dir) = fixture_sync_dir(&[]);
+    let db = archon_repo::SyncDb::load(&sync_dir.join("core.db"))
+        .expect("empty fixture database is still a valid tar archive");
+    assert!(db.is_empty());
+}
+
+#[test]
 fn arch_typo_correction_excludes_debian_packages_from_mock_apt_lists() {
     use std::fs::File;
     use std::io::Write;
