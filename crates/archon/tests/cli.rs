@@ -189,6 +189,14 @@ fn dry_run_shows_transitive_dependencies() {
     assert!(out.stdout.contains("╭─ Install plan"));
     assert!(out.stdout.contains("│  2 packages · 2 official · 0 AUR"));
     assert!(out.stdout.contains("╰─"));
+    assert!(
+        !out.stdout.contains("\u{1b}"),
+        "piped stdout must stay plain"
+    );
+    assert!(
+        !out.stderr.contains("⠋"),
+        "piped stderr must not contain spinner frames"
+    );
 }
 
 #[test]

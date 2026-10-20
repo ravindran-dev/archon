@@ -523,10 +523,10 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
     let dest = build_root.join(base);
     if dest.exists() {
         println!(
-            "{} {} {}",
-            color::yellow("↺"),
-            pkg.meta.name,
-            color::dim("already cloned")
+            "{} {} · {}",
+            color::green("✓"),
+            color::dim("Source cached"),
+            color::bold(&pkg.meta.name)
         );
         return Ok(dest);
     }
@@ -552,7 +552,7 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
         subprocess::print_if_nonempty(&output);
         bail!("git clone failed for {}", pkg.meta.name);
     }
-    spinner.success(format!("cloned {}", pkg.meta.name));
+    spinner.success(format!("Cloned {}", pkg.meta.name));
     Ok(dest)
 }
 
@@ -567,11 +567,11 @@ pub(crate) fn build_in_sandbox(
 ) -> Result<()> {
     crate::pgp::import_build_keys(pkg_dir);
     for stage in [BuildStage::Fetch, BuildStage::Build] {
-        let label = match stage {
-            BuildStage::Fetch => format!("Fetching {pkg_name}"),
-            BuildStage::Build => format!("Building {pkg_name}"),
+        let (action, completed, failure) = match stage {
+            BuildStage::Fetch => ("Fetching", "Fetched", "Fetch failed for"),
+            BuildStage::Build => ("Building", "Built", "Build failed for"),
         };
-        let spinner = Spinner::start(label);
+        let spinner = Spinner::start(format!("{action} {pkg_name}"));
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
@@ -579,13 +579,12 @@ pub(crate) fn build_in_sandbox(
         let status = child.wait().context("failed to wait on sandboxed build")?;
         let output = capture.finish();
         if !status.success() {
-            spinner.fail(format!("{pkg_name} failed ({stage:?})"));
+            spinner.fail(format!("{failure} {pkg_name}"));
             subprocess::print_if_nonempty(&output);
             bail!("sandboxed build failed for {pkg_name} ({stage:?} stage)");
         }
-        spinner.success(format!("{pkg_name} ({stage:?})"));
+        spinner.success(format!("{completed} {pkg_name}"));
     }
-    println!("{} {} built", color::bold_green("✓"), pkg_name);
     Ok(())
 }
 
@@ -860,11 +859,11 @@ pub(crate) fn run_monitored_build(
     let mut flagged = Vec::new();
 
     for stage in [BuildStage::Fetch, BuildStage::Build] {
-        let label = match stage {
-            BuildStage::Fetch => format!("Fetching {pkg_name}"),
-            BuildStage::Build => format!("Building {pkg_name} (watched)"),
+        let (action, completed, failure) = match stage {
+            BuildStage::Fetch => ("Fetching", "Fetched", "Fetch failed for"),
+            BuildStage::Build => ("Building · monitored", "Built", "Build failed for"),
         };
-        let spinner = Spinner::start(label);
+        let spinner = Spinner::start(format!("{action} {pkg_name}"));
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
@@ -903,13 +902,17 @@ pub(crate) fn run_monitored_build(
         let output = capture.finish();
 
         if !status.success() {
-            spinner.fail(format!("{pkg_name} failed ({stage:?})"));
+            spinner.fail(format!("{failure} {pkg_name}"));
             subprocess::print_if_nonempty(&output);
             bail!("{stage:?} stage failed for {pkg_name}: makepkg exited with {status}");
         }
-        spinner.success(format!(
-            "{pkg_name} ({stage:?}) — {total_events} events so far"
-        ));
+        if stage == BuildStage::Build {
+            spinner.success(format!(
+                "{completed} {pkg_name} · {total_events} events observed"
+            ));
+        } else {
+            spinner.success(format!("{completed} {pkg_name}"));
+        }
     }
 
     Ok(BuildReport {
