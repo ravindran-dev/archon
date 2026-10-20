@@ -1,0 +1,6 @@
+$ cargo test -p archon-distro missing_file_is_unknown_not_a_panic --locked -- --nocapture
+thread 'tests::missing_file_is_unknown_not_a_panic' panicked:
+assertion `left == right` failed
+left: Unknown("unreadable /etc/os-release")
+right: Unknown("unreadable /nonexistent/path/archon-test-xyz")
+test result: FAILED. 0 passed; 1 failed

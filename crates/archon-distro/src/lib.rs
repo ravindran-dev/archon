@@ -55,7 +55,7 @@ impl Distro {
     /// state from a test, racing every other test in the same binary).
     pub fn detect_at(path: &Path) -> Self {
         let Ok(contents) = std::fs::read_to_string(path) else {
-            return Distro::Unknown("unreadable /etc/os-release".to_string());
+            return Distro::Unknown(format!("unreadable {}", path.display()));
         };
         Self::from_os_release(&contents)
     }
@@ -241,8 +241,9 @@ mod tests {
 
     #[test]
     fn missing_file_is_unknown_not_a_panic() {
-        let d = Distro::detect_at(Path::new("/nonexistent/path/archon-test-xyz"));
-        assert!(matches!(d, Distro::Unknown(_)));
+        let path = Path::new("/nonexistent/path/archon-test-xyz");
+        let d = Distro::detect_at(path);
+        assert_eq!(d, Distro::Unknown(format!("unreadable {}", path.display())));
     }
 
     #[test]
