@@ -788,7 +788,7 @@ fn remove_dry_run_on_void_and_gentoo_delegate_natively() {
 }
 
 #[test]
-fn install_report_on_non_arch_warns_and_falls_back_to_plain_install() {
+fn install_report_on_non_arch_fails_closed_without_fallback() {
     let (_os, os_release) = fixture_os_release("ID=debian\n");
     let os_release = os_release.to_string_lossy().into_owned();
 
@@ -797,20 +797,15 @@ fn install_report_on_non_arch_warns_and_falls_back_to_plain_install() {
         &[("ARCHON_OS_RELEASE", &os_release)],
     );
 
+    assert!(!out.status.success());
     assert!(
-        out.status.success(),
-        "stdout: {}\nstderr: {}",
-        out.stdout,
+        out.stderr.contains("--report is only available on Arch"),
+        "got stderr: {}",
         out.stderr
     );
     assert!(
-        out.stdout.contains("only Arch/AUR has today"),
-        "expected a note that --report isn't available here, got: {}",
-        out.stdout
-    );
-    assert!(
-        out.stdout.contains("apt install firefox"),
-        "got: {}",
+        !out.stdout.contains("apt install firefox"),
+        "must not silently delegate without monitoring: {}",
         out.stdout
     );
 }

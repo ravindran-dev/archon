@@ -106,12 +106,8 @@ fn run_foreign_distro(
     report: bool,
 ) -> Result<()> {
     if report {
-        println!(
-            "{}",
-            color::yellow(
-                "note: --report (sandboxed, eBPF-monitored builds) needs a PKGBUILD-equivalent \
-                 build recipe, which only Arch/AUR has today — installing normally instead."
-            )
+        bail!(
+            "--report is only available on Arch for AUR builds; refusing to continue without eBPF monitoring"
         );
     }
     let Some(backend) = distro.backend() else {

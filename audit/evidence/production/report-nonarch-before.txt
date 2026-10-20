@@ -1,0 +1,5 @@
+$ ARCHON_OS_RELEASE=/tmp/archon-os-release-debian archon install firefox --dry-run --report
+note: --report (sandboxed, eBPF-monitored builds) needs a PKGBUILD-equivalent build recipe, which only Arch/AUR has today — installing normally instead.
+Detected Debian/Ubuntu — delegating to apt (its own dependency resolution and confirmation apply, not archon's)
+sudo apt install firefox
+exit=0
