@@ -144,9 +144,10 @@ only live testing could find — are in
 Archon 0.2.0 remains experimental. See [AUDIT.md](AUDIT.md) for failed-first
 regressions, raw verification logs, and unresolved security findings. The
 empty-database fixture and all-target clippy failures reported on 2026-10-20
-are fixed; the full locked workspace suite and live privileged/container
-checks still need successful runs in an environment that permits localhost
-test servers, eBPF/cgroups, Docker, and administrator elevation.
+are fixed, and the full locked workspace suite and strict all-target clippy
+have since passed on the user's Arch environment. The six-distro container
+matrix, live privileged AUR transaction/signature enforcement, and eBPF
+monitoring still need successful end-to-end runs before production use.
 
 - Arch resolution now backtracks across alternatives and providers, including
   late conflicts. Search is bounded (100,000 steps by default); exhaustion
