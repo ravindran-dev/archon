@@ -3,8 +3,10 @@
 Updated 2026-10-20. Baseline c09eb15; implementation through 1575c6e; earlier verification tooling/evidence bf7b12e.
 Commit author supplied by the user: ravindran-dev <ravindrans.dev@gmail.com>.
 This is a scoped audit with confirmed fixes, not certification of a perfect
-package manager. No host package installation/removal or privileged command
-was run. A later user-authorized attempt confirmed host elevation is blocked:
+package manager. No host package installation/removal was run by this agent.
+The user later reports interactive `archon setup-helper` succeeded; no real
+package transaction was run. A later agent-side attempt confirmed its host
+elevation is blocked:
 `sudo -n true` exits 1 because `/etc/sudo.conf` belongs to uid 65534 and
 `no new privileges` blocks sudo; `/usr/bin/sudo` itself also belongs to uid
 65534. Docker, Podman and nerdctl are absent, cgroup v2 is not writable, and
@@ -20,6 +22,22 @@ Original code authorship and prior README/live-testing claims were not
 independently established. The README demo is now identified as historical.
 
 ## Release-blocker follow-up (latest, supersedes the rows below)
+
+### Fail-closed monitoring request and distro diagnostic
+
+`install --report` on Debian previously printed an eBPF-unavailable note and
+then emitted `sudo apt install ...` with exit 0. That behavior could silently
+drop a requested security control. It now fails before dispatch, with an error
+stating monitoring is only supported on Arch AUR builds. The regression failed
+first on the old behavior and passes after the change. See
+[before](audit/evidence/production/report-nonarch-before.txt) and
+[after](audit/evidence/production/report-nonarch-after.txt).
+
+The `/etc/os-release` diagnostic also ignored the path supplied through
+`ARCHON_OS_RELEASE`. It now names the path it actually tried to read. Its
+focused test failed against the old hard-coded message and passes after the
+fix: [before](audit/evidence/production/distro-diagnostic-before.txt),
+[after](audit/evidence/production/distro-diagnostic-after.txt).
 
 ### User-run verification follow-up (2026-10-20)
 
@@ -197,13 +215,14 @@ The remaining release checks cannot be completed in this environment:
 
 | Release check | Latest result / raw evidence |
 |---|---|
-| Full locked workspace tests | UNVERIFIED: missing fastrand 2.4.1; online fetch also fails for tempfile 3.27.0 because static.crates.io cannot resolve. [Fetch attempt](audit/evidence/release-blockers/fetch.txt) |
+| Full locked workspace tests | PASS in user's Arch run: 229 passed, 0 failed; agent sandbox TCP mocks remain blocked by policy. [User evidence](audit/evidence/production/user-full-workspace-pass.txt) |
 | Six real distro smoke containers | All six UNVERIFIED: Docker/Podman absent. [Table](audit/evidence/release-blockers/archive-matrix.txt) |
 | Six native installation/removal containers | All six UNVERIFIED: Docker absent. [Table](audit/evidence/release-blockers/matrix-install.txt) |
 | Live eBPF / tracepoint verification | UNVERIFIED: tracefs permission denied, uid 1000, cgroup root not writable. [Kernel checks](audit/evidence/release-blockers/tracepoints.txt), [environment](audit/evidence/release-blockers/environment.txt) |
-| Live privileged pacman handoff | UNVERIFIED: no privileged transaction authorized/run in this audit; requires an appropriate disposable Arch environment |
+| Live privileged pacman handoff | UNVERIFIED: helper setup is reported successful; a real package transaction/signature check still requires a disposable Arch environment |
 
-No host packages were installed/removed and no sudo/root command was executed.
+No host packages were installed/removed by this agent. The user reports
+completing helper setup interactively after the agent-side sudo probe failed.
 No lockfile downgrade, test deletion, ignored failure, isolation relaxation,
 or fake container/eBPF success was used. These are still release-verification
 blockers; the two confirmed source vulnerabilities no longer remain unfixed.
@@ -236,7 +255,8 @@ fix commit. Coverage is restricted to the cases actually exercised.
 | Medium / G | archon-types/src/bin/verify_dpkg.rs | Comparator checker printed mismatches but exited successfully | fixed / e1d9f2b; actual native dpkg parity UNVERIFIED |
 | Medium / A | archon/src/commands/build.rs:25; archon-sandbox/src/runner.rs | Local build hardcodes makepkg and lacks backend/tool preflight | needs-decision: explicit non-Arch refusal vs managed Arch container; non-Arch runtime UNVERIFIED |
 | Medium / A | archon/src/commands/install.rs:175 | Non-Arch installation delegates; AptLists is not used in install resolution | needs-decision: retain delegation vs integrate resolver; existing delegation retained |
-| Medium / A | archon-distro/src/lib.rs:45 | Unreadable override-path diagnostic names /etc/os-release | unfixed-with-reason: original user's existing-file symptom not reproduced; diagnostic remains misleading |
+| Medium / A | archon-distro/src/lib.rs:45 | Unreadable override-path diagnostic named /etc/os-release | fixed / 9b83204; regression before/after in audit/evidence/production/distro-diagnostic-*.txt |
+| High / F,G | archon/src/commands/install.rs:106 | `--report` on non-Arch printed a warning then delegated to an unmonitored native installer | fixed / e51b6ab; now fails closed; before/after in audit/evidence/production/report-nonarch-*.txt |
 | Medium / B | archon-repo/src/lib.rs; commands/install.rs | Fixed official repo order; pacman.conf/custom Include/architecture handling not exhaustively audited | UNVERIFIED |
 | High / F | archon-monitor-ebpf/src/main.rs | Fixed tracepoint offsets and prebuilt object/source compatibility | UNVERIFIED: tracefs permission denied; no privileged access requested or used |
 | Low / G | workspace | Existing strict clippy and formatting failures | fixed / c01b9bd |

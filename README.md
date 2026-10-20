@@ -173,6 +173,8 @@ monitoring still need successful end-to-end runs before production use.
   eBPF is optional through `--report`. Zero-event and flagged reports block
   installation. Live tracepoint compatibility, event loss, malicious builds,
   and privileged installation are UNVERIFIED in this audit environment.
+- `--report` fails closed on non-Arch systems because their native package
+  managers do not use Archon’s AUR build/monitor pipeline.
 - PGP imports now execute inside bwrap as the build user, with strict
   fingerprints and GPG options disabled. The parent never modifies the build
   keyring. Real unprivileged bwrap/GPG preparation is tested; privileged user
@@ -187,9 +189,9 @@ monitoring still need successful end-to-end runs before production use.
 - ALPM comparison matched native vercmp for 900 tested pairs. Native dpkg parity
   remains UNVERIFIED here because dpkg is absent. Cross-backend comparisons now
   return typed errors instead of panicking.
-- Build, strict clippy, and formatting pass. Full workspace tests are blocked
-  by an unavailable fastrand dependency and restricted network access; HTTP
-  client tests additionally cannot bind localhost sockets in this environment.
+- Build, strict all-target clippy, formatting, and the full locked workspace
+  suite pass in the user's Arch environment (229 tests, 0 failures). The agent
+  sandbox cannot bind localhost sockets for those HTTP mock tests.
   A real benign sandbox build reaches Fetch but Build fails because the
   environment denies NETLINK_ROUTE sockets; network isolation remains enabled.
   The six-distro Docker matrix is supplied but UNVERIFIED because Docker is
