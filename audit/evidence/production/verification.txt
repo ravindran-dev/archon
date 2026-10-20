@@ -1,0 +1,40 @@
+$ cargo build --workspace --offline
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+$ cargo clippy --workspace --offline -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+$ cargo fmt --check
+$ scripts/test-security-offline.sh
+     Locking 23 packages to highest Rust 1.99.1 compatible versions
+   Compiling archon-security-regressions v0.0.0 (/tmp/archon-security-tests.jNq1m2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.12s
+     Running unittests lib.rs (/tmp/archon-security-regressions-target/debug/deps/archon_security_regressions-cf95e431d4eeaca4)
+
+running 11 tests
+test archive::tests::symlink_and_fifo_archives_are_rejected ... ok
+test pgp::tests::missing_array_returns_empty ... ok
+test handoff::tests::signed_transaction_is_private_and_keeps_adjacent_signature ... ok
+test pgp::tests::import_is_a_noop_without_a_pkgbuild ... ok
+test pgp::tests::extracts_single_key ... ok
+test pgp::tests::extracts_multiple_multiline_keys ... ok
+test handoff::tests::duplicate_archives_are_rejected ... ok
+test handoff::tests::zero_sized_signature_is_rejected ... ok
+test handoff::tests::traversal_options_and_signature_names_are_rejected_and_cleaned ... ok
+test archive::tests::snapshot_survives_source_replacement_and_cannot_be_modified ... ok
+test handoff::tests::truncated_or_trailing_data_never_leaves_staging ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests archon_security_regressions
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ scripts/matrix.sh
+IMAGE	MODE	RESULT	REASON
+archlinux:latest	smoke	UNVERIFIED	docker not installed
+ubuntu:24.04	smoke	UNVERIFIED	docker not installed
+debian:stable	smoke	UNVERIFIED	docker not installed
+fedora:latest	smoke	UNVERIFIED	docker not installed
+opensuse/tumbleweed	smoke	UNVERIFIED	docker not installed
+alpine:latest	smoke	UNVERIFIED	docker not installed
