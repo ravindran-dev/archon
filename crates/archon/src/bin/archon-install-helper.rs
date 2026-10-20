@@ -3,8 +3,7 @@
 #[path = "../handoff.rs"]
 mod handoff;
 
-use std::fs::File;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::Ordering;
 
 extern "C" fn interrupt(_: libc::c_int) {
@@ -40,7 +39,6 @@ fn main() -> anyhow::Result<()> {
     }
     let base = handoff::prepare_root()?;
     let transaction = handoff::StagedTransaction::receive(&base, &mut std::io::stdin().lock())?;
-    let terminal = File::open("/dev/tty").ok();
     let mut child = Command::new("/usr/bin/pacman")
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -48,10 +46,9 @@ fn main() -> anyhow::Result<()> {
         .env("HOME", "/root")
         .args(["--config", "/etc/pacman.conf", "-U", "--needed", "--"])
         .args(transaction.packages())
-        .stdin(match terminal {
-            Some(terminal) => Stdio::from(terminal),
-            None => Stdio::inherit(),
-        })
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
         .spawn()?;
     let mut forwarded = false;
     let status = loop {

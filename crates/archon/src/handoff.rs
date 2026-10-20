@@ -107,7 +107,7 @@ pub fn install_helper(source: &Path) -> Result<()> {
         file.metadata()?.is_file(),
         "helper source is not a regular file"
     );
-    let status = std::process::Command::new("/usr/bin/sudo")
+    let status = std::process::Command::new("sudo")
         .args([
             "--",
             "/usr/bin/install",
