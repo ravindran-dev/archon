@@ -1,0 +1,20 @@
+User-run output before the empty-fixture fix:
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+error: associated function `from_fixture` is never used
+  --> crates/archon/src/archive.rs:95:12
+   |
+95 |     pub fn from_fixture(source: &Path, signature: Option<&Path>) -> Result<Self> {
+   |            ^^^^^^^^^^^^
+error: could not compile `archon-cli` (bin "archon" test) due to 1 previous error
+
+$ cargo test --workspace --locked
+The user reported 33 CLI tests passed and:
+typo_correction_respects_max_depth_when_suggestion_also_not_found ... FAILED
+Error: failed to load official repo databases from /tmp/.tmppsDDV9
+(caused by unsupported compression in /tmp/.tmppsDDV9/core.db)
+
+The user also reported that `archon setup-helper` succeeded, the
+`google-chrome --dry-run` plan completed with all official packages current,
+and `scripts/matrix.sh` reported all six distro images UNVERIFIED because
+Docker was unavailable. The dry-run did not install packages.

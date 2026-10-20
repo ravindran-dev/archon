@@ -21,6 +21,34 @@ independently established. The README demo is now identified as historical.
 
 ## Release-blocker follow-up (latest, supersedes the rows below)
 
+### User-run verification follow-up (2026-10-20)
+
+The user's full test run showed 33 CLI tests passing and one failure in
+`typo_correction_respects_max_depth_when_suggestion_also_not_found`: the
+empty `fixture_sync_dir(&[])` emitted only zero tar blocks, which have no USTAR
+magic, and production compression sniffing correctly rejected it. A new
+regression first failed with `UnknownCompression`; the fixture now adds an
+ignored zero-length USTAR entry without adding a package. The new focused
+regression passes. The original network-backed depth test cannot be rerun in
+this execution sandbox because localhost TCP bind is denied; its previous
+failure evidence from the user is
+[here](audit/evidence/production/empty-fixture-before.txt), and the focused
+after output is [here](audit/evidence/production/empty-fixture-after.txt).
+
+Strict all-target clippy exposed an unused `PackageArchive::from_fixture`
+helper. It was unused and removed; clippy passes with `-D warnings`.
+[Before](audit/evidence/production/clippy-from-fixture-before.txt) and
+[after](audit/evidence/production/clippy-from-fixture-after.txt). The full
+workspace suite now reaches AUR HTTP-mock tests but those five tests fail in
+this agent sandbox because its network policy rejects local TCP bind. This is
+UNVERIFIED here, not a test skip. The user environment did run the suite and
+reported the separate empty-fixture failure, which the focused regression
+addresses. The user also reports `archon setup-helper` completed and the
+installed `google-chrome` dry-run found the package already installed; this
+did not exercise an AUR build or signature verification. The six-image matrix
+still reports Docker unavailable. User-supplied raw run summary:
+[before fix](audit/evidence/production/user-run-before.txt).
+
 PGP traversal is fixed in source (2baa64c): the privileged parent no longer creates,
 chmods, chowns or runs GPG on the package keyring. Automatic imports use the
 existing bwrap filesystem policy and, on the monitored path, the same non-root
