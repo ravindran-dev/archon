@@ -13,7 +13,7 @@ On Arch, archon resolves dependencies across the official repos and AUR,
 builds AUR packages in a bubblewrap sandbox, and installs the resulting
 archives through pacman. Optional eBPF monitoring is available with `--report`.
 Other supported distro families delegate installation to their native package
-manager. Version 0.2.0 is experimental; unresolved security findings and
+manager. Version 0.2.1 is experimental; unresolved security findings and
 verification limits are documented in [AUDIT.md](AUDIT.md).
 
 ## Features
@@ -141,7 +141,7 @@ only live testing could find — are in
 
 ## Known Limitations
 
-Archon 0.2.0 remains experimental. See [AUDIT.md](AUDIT.md) for failed-first
+Archon 0.2.1 remains experimental. See [AUDIT.md](AUDIT.md) for failed-first
 regressions, raw verification logs, and unresolved security findings. The
 empty-database fixture and all-target clippy failures reported on 2026-10-20
 are fixed, and the full locked workspace suite and strict all-target clippy

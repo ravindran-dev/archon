@@ -14,6 +14,10 @@ import tomllib
 root = Path(__file__).resolve().parents[1]
 crate, *args = sys.argv[1:]
 manifest = tomllib.loads((root / 'crates' / crate / 'Cargo.toml').read_text())
+workspace = tomllib.loads((root / 'Cargo.toml').read_text())
+version = manifest['package'].get('version')
+if not isinstance(version, str):
+    version = workspace['workspace']['package']['version']
 deps = root / 'target/debug/deps'
 with tempfile.TemporaryDirectory(prefix='archon-cached-tests-') as directory:
     binary = Path(directory) / 'tests'
@@ -26,6 +30,6 @@ with tempfile.TemporaryDirectory(prefix='archon-cached-tests-') as directory:
             raise SystemExit(f'UNVERIFIED: missing compiled dependency {name}; cannot compile {crate} tests')
         command += ['--extern', f'{name}={libraries[-1]}']
     env = os.environ.copy()
-    env.update(CARGO_PKG_VERSION='0.2.0', CARGO_MANIFEST_DIR=str(root / 'crates' / crate))
+    env.update(CARGO_PKG_VERSION=version, CARGO_MANIFEST_DIR=str(root / 'crates' / crate))
     subprocess.run(command, env=env, check=True)
     raise SystemExit(subprocess.run([str(binary), *args], env=env).returncode)

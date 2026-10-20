@@ -15,7 +15,7 @@ cat > "$work/Cargo.toml" <<'TOML'
 resolver = "2"
 members = ["crates/archon-types", "crates/archon-resolver"]
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ravindran-dev/archon"
