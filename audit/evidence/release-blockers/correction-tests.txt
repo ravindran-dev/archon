@@ -1,0 +1,11 @@
+$ rustc --edition=2024 --test crates/archon/src/correction.rs -o /tmp/archon-final-std-tests-4tcazuy9/tests
+$ /tmp/archon-final-std-tests-4tcazuy9/tests
+
+running 2 tests
+test tests::prefixes_use_characters_not_bytes ... ok
+test tests::third_failed_name_stops_the_chain ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+EXIT: 0

@@ -162,8 +162,8 @@ regressions, raw verification logs, and unresolved security findings.
   and privileged installation are UNVERIFIED in this audit environment.
 - PGP imports now execute inside bwrap as the build user, with strict
   fingerprints and GPG options disabled. The parent never modifies the build
-  keyring. Live kernel isolation and privileged user switching still need
-  end-to-end verification.
+  keyring. Real unprivileged bwrap/GPG preparation is tested; privileged user
+  switching and successful signature verification still need end-to-end checks.
 - Archive identity is checked with pacman; ambiguous outputs fail explicitly.
   Validation and installation now use the same sealed Linux memfd snapshot;
   real privileged procfs handoff remains unverified. Detached signatures require
@@ -178,6 +178,8 @@ regressions, raw verification logs, and unresolved security findings.
 - Build, strict clippy, and formatting pass. Full workspace tests are blocked
   by an unavailable fastrand dependency and restricted network access; HTTP
   client tests additionally cannot bind localhost sockets in this environment.
+  A real benign sandbox build reaches Fetch but Build fails because the
+  environment denies NETLINK_ROUTE sockets; network isolation remains enabled.
   The six-distro Docker matrix is supplied but UNVERIFIED because Docker is
   absent. Run `scripts/matrix.sh` and optionally `scripts/matrix.sh --install`
   on a Docker host; transactions occur only inside disposable containers.

@@ -1,0 +1,14 @@
+$ python3 scripts/check-live-sandbox.py
+$ /home/ravi/archon/target/debug/archon build /tmp/archon-live-sandbox-8r8fjdsg/archon-demo-benign
+✓ archon-demo-benign (Fetch)
+✗ archon-demo-benign failed (Build)
+bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted
+Error: sandboxed build failed for archon-demo-benign (Build stage)
+EXIT: 1
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/check-live-sandbox.py", line 38, in <module>
+    assert result.returncode == 0, f'{name} real sandbox build failed'
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: archon-demo-benign real sandbox build failed
+
+EXIT: 1

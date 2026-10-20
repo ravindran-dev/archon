@@ -1,0 +1,3 @@
+$ bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
+
+EXIT: 0

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
@@ -30,9 +31,22 @@ with open(os.environ['FIXTURE_CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:
     package.mkdir()
     fingerprint = 'E1096BCBFF6D418796DE78515384CE82BA52C83A'
     (package / 'PKGBUILD').write_text("validpgpkeys=('" + fingerprint + "' '--homedir=/outside' '../outside')\n")
-    env = dict(os.environ, PATH=str(tools), FIXTURE_CALLS=str(calls))
+    live = sys.argv[1:] == ['--live']
+    if live:
+        bundle = package / 'keys/pgp'
+        bundle.mkdir(parents=True)
+        (bundle / (fingerprint + '.asc')).write_text('intentionally invalid offline public-key fixture')
+        (package / '.gnupg').mkdir(mode=0o700)
+        (package / '.gnupg/gpg.conf').write_text('archon-audit-invalid-option-that-must-not-be-read\n')
+    env = dict(os.environ, PATH=os.environ['PATH'] if live else str(tools), FIXTURE_CALLS=str(calls))
     result = subprocess.run([str(binary), str(package)], env=env, capture_output=True, text=True, check=True)
     print(result.stderr, end='')
+    if live:
+        assert 'no valid OpenPGP data found' in result.stderr, 'real GPG must parse the bundled offline fixture inside bwrap'
+        assert 'invalid option' not in result.stderr, 'package-controlled gpg.conf must not be read'
+        print('PASS: real bwrap/GPG parsed offline bundled data and ignored package-controlled gpg.conf')
+        print('UNVERIFIED: successful signature verification and privileged uid/gid switching')
+        raise SystemExit(0)
     assert calls.exists(), 'PGP preparation must execute through the sandbox'
     args = json.loads(calls.read_text())
     command = args[args.index('--') + 1:]

@@ -1,0 +1,10 @@
+{
+  "uid": 1000,
+  "docker": null,
+  "podman": null,
+  "dpkg": null,
+  "cgroup_v2": true,
+  "cgroup_root_writable": false,
+  "localhost_bind": "UNVERIFIED: [Errno 1] Operation not permitted"
+}
+No privilege elevation or package transaction attempted.

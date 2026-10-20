@@ -1,0 +1,14 @@
+$ rustc --edition=2024 --test crates/archon/src/srcinfo.rs -o /tmp/archon-final-std-tests-6njz3y0h/tests
+$ /tmp/archon-final-std-tests-6njz3y0h/tests
+
+running 5 tests
+test tests::extracts_hosts_from_source_lines ... ok
+test tests::ignores_local_sources_without_scheme ... ok
+test tests::vcs_https_sources_declare_their_network_host ... ok
+test tests::strips_port_and_path_and_query ... ok
+test tests::missing_srcinfo_yields_empty_set ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+EXIT: 0

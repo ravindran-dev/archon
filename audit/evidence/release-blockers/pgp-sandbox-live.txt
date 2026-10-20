@@ -1,0 +1,9 @@
+$ python3 scripts/repro-pgp-sandbox.py --live
+warning: ignoring invalid validpgpkeys fingerprint "--homedir=/outside"
+warning: ignoring invalid validpgpkeys fingerprint "../outside"
+gpg: no valid OpenPGP data found.
+warning: sandboxed PGP key import failed (Ok(ExitStatus(unix_wait_status(512)))); makepkg signature verification is still required
+PASS: real bwrap/GPG parsed offline bundled data and ignored package-controlled gpg.conf
+UNVERIFIED: successful signature verification and privileged uid/gid switching
+
+EXIT: 0

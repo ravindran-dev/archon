@@ -1,0 +1,6 @@
+$ cargo build --release --locked --offline --bin archon -j 2
+   Compiling archon-sandbox v0.2.0 (/home/ravi/archon/crates/archon-sandbox)
+   Compiling archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `release` profile [optimized] target(s) in 13.89s
+
+EXIT: 0

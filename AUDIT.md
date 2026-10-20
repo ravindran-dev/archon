@@ -1,6 +1,6 @@
 # Archon audit — current disposition
 
-Updated 2026-10-20. Baseline c09eb15; implementation through e1d9f2b; verification tooling/evidence bf7b12e.
+Updated 2026-10-20. Baseline c09eb15; implementation through 1575c6e; earlier verification tooling/evidence bf7b12e.
 Commit author supplied by the user: ravindran-dev <ravindrans.dev@gmail.com>.
 This is a scoped audit with confirmed fixes, not certification of a perfect
 package manager. No host package installation/removal or privileged command
@@ -14,7 +14,7 @@ independently established. The README demo is now identified as historical.
 
 ## Release-blocker follow-up (latest, supersedes the rows below)
 
-PGP traversal is fixed in source: the privileged parent no longer creates,
+PGP traversal is fixed in source (2baa64c): the privileged parent no longer creates,
 chmods, chowns or runs GPG on the package keyring. Automatic imports use the
 existing bwrap filesystem policy and, on the monitored path, the same non-root
 build identity. Root build identities are rejected before spawning. Invalid
@@ -37,7 +37,7 @@ not a functioning kernel namespace boundary.
 
 ### Immutable archive handoff
 
-The check-to-install race is fixed in source. `archive::PackageArchive` opens
+The check-to-install race is fixed in source (1575c6e). `archive::PackageArchive` opens
 regular files with O_NOFOLLOW/O_NONBLOCK, copies them to a Linux memfd, and
 adds WRITE/GROW/SHRINK/SEAL seals before any identity check. Both `pacman -Qp`
 and the eventual `pacman -U` read the same `/proc/<archon-pid>/fd/<n>` snapshot;
@@ -103,6 +103,64 @@ by missing fastrand v2.4.1. Matrix rerun: six UNVERIFIED (Docker absent).
 [workspace failure](audit/evidence/release-blockers/archive-workspace-tests.txt),
 [matrix](audit/evidence/release-blockers/archive-matrix.txt).
 
+### Final follow-up results and environment blockers
+
+The optimized binary containing both fixes is deployed to
+`/home/ravi/.local/bin/archon`, still version 0.2.0. Current SHA256:
+`e442ba29272a900a2f282a1fe2bc22c9edc6446d2b2e68779cb34021122ef94c`.
+Backup: `/tmp/archon-before-security-fixes-htp443ox`.
+[Release build](audit/evidence/release-blockers/release-build.txt),
+[deployment](audit/evidence/release-blockers/installed-binary.txt),
+[installed CLI dry-run](audit/evidence/release-blockers/installed-dry-run.txt).
+
+Final build, strict clippy and formatting pass. There are 148 passing targeted
+Rust unit tests: types 29, resolver 40, distro 27, sandbox 14, monitor-common 4,
+monitor 17, AUR model 4, correction 2, srcinfo 5, PGP 4 and archive 2. The last
+six use the explicitly documented temporary security-test workspace. All nine
+AUR tests were also attempted: four pass, five fail at socket creation/bind
+with Operation not permitted; zero are ignored. No full-workspace success is
+claimed. [Raw final checks](audit/evidence/release-blockers/final-workspace-tests.txt),
+[clippy](audit/evidence/release-blockers/final-clippy.txt),
+[format](audit/evidence/release-blockers/final-fmt.txt),
+[AUR failures](audit/evidence/release-blockers/aur-all-tests.txt).
+
+The actual unprivileged bwrap/GPG preparation path was additionally exercised
+without network: an intentionally invalid bundled public-key file reaches real
+GPG, and a deliberately invalid package gpg.conf is ignored by --no-options.
+GPG rejects the invalid data and Archon warns that makepkg signature verification
+is still required. This verifies isolation dispatch/config suppression, not a
+successful signature verification:
+[raw live GPG test](audit/evidence/release-blockers/pgp-sandbox-live.txt).
+
+A minimal real bwrap mount/user/PID namespace command succeeds. A real benign
+demo build succeeds at Fetch but FAILS at Build with:
+
+```text
+bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted
+```
+
+[Raw build failure](audit/evidence/release-blockers/live-sandbox-builds.txt),
+[minimal namespace check](audit/evidence/release-blockers/bwrap-live.txt).
+The suite stops there; the malicious demo is not reached. No network isolation
+was removed to obtain a passing build. Full build isolation, malicious-demo
+flagging, root uid/gid switching and real privileged installation stay UNVERIFIED.
+The test only builds temporary copies; it never installs an archive.
+
+The remaining release checks cannot be completed in this environment:
+
+| Release check | Latest result / raw evidence |
+|---|---|
+| Full locked workspace tests | UNVERIFIED: missing fastrand 2.4.1; online fetch also fails for tempfile 3.27.0 because static.crates.io cannot resolve. [Fetch attempt](audit/evidence/release-blockers/fetch.txt) |
+| Six real distro smoke containers | All six UNVERIFIED: Docker/Podman absent. [Table](audit/evidence/release-blockers/archive-matrix.txt) |
+| Six native installation/removal containers | All six UNVERIFIED: Docker absent. [Table](audit/evidence/release-blockers/matrix-install.txt) |
+| Live eBPF / tracepoint verification | UNVERIFIED: tracefs permission denied, uid 1000, cgroup root not writable. [Kernel checks](audit/evidence/release-blockers/tracepoints.txt), [environment](audit/evidence/release-blockers/environment.txt) |
+| Live privileged pacman handoff | UNVERIFIED: no privileged transaction authorized/run in this audit; requires an appropriate disposable Arch environment |
+
+No host packages were installed/removed and no sudo/root command was executed.
+No lockfile downgrade, test deletion, ignored failure, isolation relaxation,
+or fake container/eBPF success was used. These are still release-verification
+blockers; the two confirmed source vulnerabilities no longer remain unfixed.
+
 ## Current findings
 
 Locations refer to current source unless explicitly marked baseline.
@@ -158,11 +216,11 @@ test substitute. Explicit filtered runs below do not hide the full AUR result.
 | cargo clippy --workspace --locked --offline -- -D warnings | PASS | [clippy](audit/evidence/final-clippy.txt) |
 | cargo fmt --check | PASS | [fmt](audit/evidence/final-fmt.txt) |
 | cargo test --workspace --locked --offline | UNVERIFIED: cannot download fastrand v2.4.1 | [failure](audit/evidence/final-workspace-tests.txt), [network attempt](audit/evidence/completion-fetch.txt) |
-| Actual types/resolver/distro/sandbox/monitor-common/monitor tests | PASS: 29 / 40 / 27 / 13 / 4 / 17 | final-cached-*.txt under audit/evidence |
+| Actual types/resolver/distro/sandbox/monitor-common/monitor tests | PASS: 29 / 40 / 27 / 14 / 4 / 17 | latest *-tests.txt under audit/evidence/release-blockers |
 | Actual AUR crate, all nine tests | 4 PASS, 5 FAIL: localhost bind Operation not permitted; 0 ignored | [full failure](audit/evidence/final-cached-aur-all.txt) |
 | AUR model subset | PASS: 4, 5 explicitly filtered | [subset](audit/evidence/final-cached-aur-model.txt) |
 | Correction/srcinfo std-only tests | PASS: 2 / 5 | [correction](audit/evidence/final-correction.txt), [srcinfo](audit/evidence/final-srcinfo.txt) |
-| Production AUR installation function, fake bwrap/pacman/sudo | PASS: 9 scenarios, no privileged command executed | [raw](audit/evidence/final-install-regressions.txt) |
+| Production AUR installation function, fake bwrap/pacman/sudo | PASS: 12 scenarios, no privileged command executed | [raw](audit/evidence/release-blockers/archive-install-after.txt) |
 | Production typo path | PASS: Unicode + backend isolation | [raw](audit/evidence/final-typo-regressions.txt) |
 | Native ALPM comparator parity | PASS: 900 pairs, 0 mismatches | [raw](audit/evidence/final-version-parity.txt) |
 | Native Dpkg comparator parity | UNVERIFIED: dpkg absent | [raw](audit/evidence/final-version-parity.txt) |
@@ -171,11 +229,12 @@ test substitute. Explicit filtered runs below do not hide the full AUR result.
 | Real kernel tracepoint formats | UNVERIFIED: permission denied | [raw](audit/evidence/final-tracepoints.txt) |
 | Shell script syntax | PASS; Dockerfile/runtime still UNVERIFIED | [raw](audit/evidence/final-script-syntax.txt) |
 
-These targeted runs cover 141 passing Rust unit tests, including the four AUR
-model tests. Five additional AUR client tests fail for the logged environment
+The latest targeted runs cover 148 passing Rust unit tests, including the four
+AUR model tests and six security-module tests documented in the follow-up. Five additional AUR client tests fail for the logged environment
 restriction. Full workspace, repo and CLI integration suites remain UNVERIFIED.
-Actual bwrap isolation, real AUR downloads/builds, evil-demo detection, root
-install success and Ctrl-C cleanup were not run by this audit.
+The follow-up above exercises partial live bwrap/GPG behavior, but full builds
+are blocked by NETLINK_ROUTE permissions. Real AUR downloads/builds, evil-demo
+detection, root install success and Ctrl-C cleanup remain UNVERIFIED.
 
 ## Container matrix and privilege requirements
 
@@ -209,7 +268,7 @@ checks are deliberately separate from this unprivileged smoke matrix; a
 privileged container would need explicit authorization and host kernel/cgroup
 access. No `--privileged` test was run.
 
-## Installed executable
+## Earlier installed executable (superseded by follow-up deployment)
 
 The optimized worktree binary was atomically installed at
 `/home/ravi/.local/bin/archon`; no distro package transaction was performed.
@@ -235,7 +294,7 @@ This does not verify their installation or runtime behavior. Google Chrome
 is absent from official repositories and requires AUR; its AUR timing is
 UNVERIFIED. [Complete raw timings](audit/evidence/final-benchmark.txt).
 
-## New PGP security blocker: raw reproduction
+## PGP security issue: failed-first reproduction (now fixed)
 
 Command (no root, network or real gpg; all changes within a temporary fixture):
 

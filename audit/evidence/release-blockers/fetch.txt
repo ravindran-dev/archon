@@ -1,0 +1,8 @@
+$ CARGO_NET_RETRY=0 CARGO_HTTP_TIMEOUT=15 cargo fetch --locked
+ Downloading crates ...
+error: failed to download from `https://static.crates.io/crates/tempfile/3.27.0/download`
+
+Caused by:
+  [6] Could not resolve hostname (Could not resolve host: static.crates.io)
+
+EXIT: 101

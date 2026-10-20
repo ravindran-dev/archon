@@ -1,0 +1,12 @@
+$ python3 scripts/test-cached-crate.py archon-monitor-common
+
+running 4 tests
+test tests::comm_str_stops_at_nul ... ok
+test tests::roundtrips_through_bytes ... ok
+test tests::write_open_detection ... ok
+test tests::rejects_wrong_length ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+EXIT: 0

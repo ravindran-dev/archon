@@ -1,0 +1,7 @@
+Atomically installed optimized release: /home/ravi/.local/bin/archon
+Backup: /tmp/archon-before-security-fixes-htp443ox
+SHA256: e442ba29272a900a2f282a1fe2bc22c9edc6446d2b2e68779cb34021122ef94c
+$ zsh -lc 'command -v archon; archon --version'
+/home/ravi/.local/bin/archon
+archon 0.2.0
+EXIT: 0
