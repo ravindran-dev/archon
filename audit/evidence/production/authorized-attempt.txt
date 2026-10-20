@@ -1,0 +1,22 @@
+$ id
+uid=1000(ravi) gid=1000(ravi) groups=1000(ravi),65534(nobody)
+$ ls -l /usr/bin/sudo
+-rwsr-xr-x 1 nobody nobody 261304 Jun 16 15:01 /usr/bin/sudo
+$ sudo -n true
+sudo: /etc/sudo.conf is owned by uid 65534, should be 0
+sudo: The "no new privileges" flag is set, which prevents sudo from running as root.
+sudo: If sudo is running in a container, you may need to adjust the container configuration to disable this flag.
+sudo_status=1
+$ command -v docker; command -v podman; command -v nerdctl
+(no output; unavailable)
+$ test -w /sys/fs/cgroup && echo cgroup-writable || echo cgroup-not-writable
+cgroup-not-writable
+$ ls /sys/kernel/tracing/events/syscalls/sys_enter_execve/format
+ls: cannot access '/sys/kernel/tracing/events/syscalls/sys_enter_execve/format': Permission denied
+$ cargo test --workspace --locked --offline
+error: failed to download `fastrand v2.4.1`
+Caused by:
+  attempting to make an HTTP request, but --offline was specified
+$ cargo update --offline -p tempfile --precise 3.24.0
+error: offline resolution fails on uncached wasm-bindgen 0.2.126 / wasm-bindgen-futures 0.4.76 dependency requirements
+Cargo.lock was restored byte-for-byte after this experiment.

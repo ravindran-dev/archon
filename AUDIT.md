@@ -4,7 +4,14 @@ Updated 2026-10-20. Baseline c09eb15; implementation through 1575c6e; earlier ve
 Commit author supplied by the user: ravindran-dev <ravindrans.dev@gmail.com>.
 This is a scoped audit with confirmed fixes, not certification of a perfect
 package manager. No host package installation/removal or privileged command
-was run. The actual host is Arch Linux, uid 1000; the original prompt's
+was run. A later user-authorized attempt confirmed host elevation is blocked:
+`sudo -n true` exits 1 because `/etc/sudo.conf` belongs to uid 65534 and
+`no new privileges` blocks sudo; `/usr/bin/sudo` itself also belongs to uid
+65534. Docker, Podman and nerdctl are absent, cgroup v2 is not writable, and
+syscall tracepoint format access is denied. No host ownership, sudo, cgroup,
+or package state was changed. Exact output:
+[authorized attempt](audit/evidence/production/authorized-attempt.txt).
+The actual host is Arch Linux, uid 1000; the original prompt's
 Ubuntu environment description does not match this workspace.
 
 The current disposition below supersedes the chronological Phase 0 notes
