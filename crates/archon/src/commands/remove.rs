@@ -49,6 +49,7 @@ fn run_foreign_distro(
 }
 
 pub fn run(packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
+    install::validate_package_names(packages)?;
     let distro = Distro::detect();
     if !distro.is_arch() {
         return run_foreign_distro(&distro, packages, dry_run, yes);

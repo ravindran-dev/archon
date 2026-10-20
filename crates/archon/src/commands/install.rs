@@ -186,6 +186,7 @@ fn run_with_history(
     report: bool,
     correction_history: &std::collections::HashMap<usize, Vec<String>>,
 ) -> Result<()> {
+    validate_package_names(packages)?;
     let distro = Distro::detect();
     if !distro.is_arch() {
         return run_foreign_distro(&distro, packages, dry_run, yes, report);
@@ -304,6 +305,16 @@ fn run_with_history(
         }
     }
 
+    Ok(())
+}
+
+pub(crate) fn validate_package_names(packages: &[String]) -> Result<()> {
+    if let Some(name) = packages
+        .iter()
+        .find(|name| name.is_empty() || name.starts_with('-'))
+    {
+        bail!("invalid package name {name:?}: package names cannot be empty or start with '-'");
+    }
     Ok(())
 }
 

@@ -811,6 +811,31 @@ fn install_report_on_non_arch_fails_closed_without_fallback() {
 }
 
 #[test]
+fn package_names_starting_with_dash_are_rejected_before_native_dispatch() {
+    let (_os, os_release) = fixture_os_release("ID=debian\n");
+    let os_release = os_release.to_string_lossy().into_owned();
+
+    for args in [
+        vec!["install", "--dry-run", "--", "--allow-remove-essential"],
+        vec!["remove", "--dry-run", "--", "--purge"],
+    ] {
+        let out = run_archon(&args, &[("ARCHON_OS_RELEASE", &os_release)]);
+        assert!(!out.status.success(), "unexpected success for {args:?}");
+        assert!(
+            out.stderr
+                .contains("package names cannot be empty or start with '-'"),
+            "got stderr: {}",
+            out.stderr
+        );
+        assert!(
+            !out.stdout.contains("apt install") && !out.stdout.contains("apt remove"),
+            "option-like input reached native argv: {}",
+            out.stdout
+        );
+    }
+}
+
+#[test]
 fn missing_sync_dir_fails_with_actionable_error() {
     let out = run_archon(
         &["install", "leaf", "--dry-run"],

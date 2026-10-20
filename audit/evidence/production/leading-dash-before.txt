@@ -1,0 +1,8 @@
+$ ARCHON_OS_RELEASE=/tmp/archon-os-release-debian ~/.local/bin/archon install --dry-run -- --allow-remove-essential
+Detected Debian/Ubuntu — delegating to apt (its own dependency resolution and confirmation apply, not archon's)
+sudo apt install --allow-remove-essential
+exit=0
+
+$ cargo test -p archon-cli --test cli package_names_starting_with_dash_are_rejected_before_native_dispatch --locked -- --nocapture
+assertion failed: !out.status.success()
+test package_names_starting_with_dash_are_rejected_before_native_dispatch ... FAILED

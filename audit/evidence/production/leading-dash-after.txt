@@ -1,0 +1,8 @@
+$ ARCHON_OS_RELEASE=/tmp/archon-os-release-debian ~/.local/bin/archon install --dry-run -- --allow-remove-essential
+Error: invalid package name "--allow-remove-essential": package names cannot be empty or start with '-'
+exit=1
+
+$ cargo test -p archon-cli --test cli package_names_starting_with_dash_are_rejected_before_native_dispatch --locked -- --nocapture
+test package_names_starting_with_dash_are_rejected_before_native_dispatch ... ok
+test result: ok. 1 passed; 0 failed
+The regression covers both Debian install and remove paths.
