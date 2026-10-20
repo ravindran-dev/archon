@@ -1,0 +1,22 @@
+$ python3 scripts/test-cached-crate.py archon-sandbox
+
+running 14 tests
+test policy::tests::command_appears_after_separator ... ok
+test policy::tests::pkg_dir_bound_writable_after_masking ... ok
+test policy::tests::network_stage_omits_unshare_net ... ok
+test policy::tests::build_stage_unshares_net ... ok
+test policy::tests::run_is_masked ... ok
+test runner::tests::fetch_stage_flags ... ok
+test runner::tests::root_build_identity_is_rejected_before_any_spawn ... ok
+test runner::tests::write_decimal_formats_correctly ... ok
+test policy::tests::root_bind_precedes_virtual_mounts ... ok
+test runner::tests::cgroup_procs_cstring_appends_filename ... ok
+test policy::tests::root_is_read_only ... ok
+test policy::tests::extra_env_included ... ok
+test runner::tests::build_stage_flags ... ok
+test runner::tests::missing_bwrap_is_reported_not_panicked ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+EXIT: 0

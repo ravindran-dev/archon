@@ -816,19 +816,10 @@ pub(crate) fn run_monitored_build(
     pkg_name: &str,
     privileges: &Privileges,
 ) -> Result<BuildReport> {
-    // Runs as root (this function doesn't itself drop privileges — only
-    // the sandboxed bwrap process does), so any `.gnupg` it creates here
-    // must be handed to the target user below, same as the rest of `dest`.
-    crate::pgp::import_build_keys(dest);
-    let gnupg_home = dest.join(".gnupg");
-    if gnupg_home.exists() {
-        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid).with_context(|| {
-            format!(
-                "failed to chown {} to the target user",
-                gnupg_home.display()
-            )
-        })?;
-    }
+    // Preparation also crosses the sandbox boundary as the build user.
+    // Never touch a package-controlled .gnupg from the privileged parent.
+    let key_runner = SandboxRunner::new(dest).run_as(privileges.uid, privileges.gid);
+    crate::pgp::import_build_keys_with_runner(dest, &key_runner);
 
     let allowed_ips = srcinfo::resolve_allowed_ips(dest);
     let policy = Policy::new(dest, allowed_ips);

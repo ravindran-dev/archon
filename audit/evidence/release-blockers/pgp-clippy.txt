@@ -1,0 +1,6 @@
+$ cargo clippy --workspace --locked --offline -- -D warnings
+    Checking archon-sandbox v0.2.0 (/home/ravi/archon/crates/archon-sandbox)
+    Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.30s
+
+EXIT: 0

@@ -33,6 +33,8 @@ impl BuildStage {
 pub enum SandboxError {
     #[error("bubblewrap (bwrap) not found in PATH — install the `bubblewrap` package")]
     BwrapNotFound,
+    #[error("refusing to run a build or key import as root; select a non-root build user")]
+    RootBuildDenied,
     #[error("failed to launch bwrap: {0}")]
     Spawn(#[source] std::io::Error),
     #[error("{stage:?} stage failed: makepkg exited with {status}")]
@@ -170,6 +172,23 @@ impl SandboxRunner {
     /// (the Phase 3 monitor) observe the child's PID before the build runs,
     /// so no syscalls happen unobserved.
     pub fn spawn_stage(&self, stage: BuildStage) -> Result<Child, SandboxError> {
+        let mut command = vec!["makepkg".into()];
+        command.extend(stage.makepkg_args().iter().map(|s| s.to_string()));
+        self.spawn_command(stage, &command)
+    }
+
+    /// Run preparation commands behind the same filesystem and privilege
+    /// boundary as makepkg. In particular, never import package keys on the host.
+    pub fn spawn_command(
+        &self,
+        stage: BuildStage,
+        command: &[String],
+    ) -> Result<Child, SandboxError> {
+        if self.run_as.is_some_and(|(uid, _)| uid == 0)
+            || (unsafe { libc::geteuid() } == 0 && self.run_as.is_none())
+        {
+            return Err(SandboxError::RootBuildDenied);
+        }
         if !Self::bwrap_available() {
             return Err(SandboxError::BwrapNotFound);
         }
@@ -178,9 +197,7 @@ impl SandboxRunner {
             allow_network: stage.allow_network(),
             extra_env: self.extra_env.clone(),
         };
-        let mut command: Vec<String> = vec!["makepkg".into()];
-        command.extend(stage.makepkg_args().iter().map(|s| s.to_string()));
-        let args = policy.bwrap_args(&command);
+        let args = policy.bwrap_args(command);
         let mut cmd = Command::new("bwrap");
         cmd.args(&args);
         if self.capture_output {
@@ -272,6 +289,15 @@ mod tests {
             cstring.to_str().unwrap(),
             "/sys/fs/cgroup/archon/build-foo/cgroup.procs"
         );
+    }
+
+    #[test]
+    fn root_build_identity_is_rejected_before_any_spawn() {
+        let runner = SandboxRunner::new("/tmp/unused").run_as(0, 0);
+        assert!(matches!(
+            runner.spawn_command(BuildStage::Fetch, &["gpg".into()]),
+            Err(SandboxError::RootBuildDenied)
+        ));
     }
 
     #[test]

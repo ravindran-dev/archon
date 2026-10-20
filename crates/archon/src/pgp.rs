@@ -13,18 +13,14 @@
 //! starts with a completely empty keyring — even for a key the user has
 //! already trusted on the real system.
 //!
-//! This mirrors what yay/paru already do: before the networked Fetch stage
-//! runs, read `validpgpkeys` out of the PKGBUILD (plain text parsing, never
-//! sourced/executed — same rule as the rest of archon) and import each key
-//! into `$pkg_dir/.gnupg`, preferring the maintainer-bundled copy under
-//! `keys/pgp/<FINGERPRINT>.asc` when present (same trust boundary as the
-//! PKGBUILD itself already cloned via git, no network needed) and falling
-//! back to a keyserver otherwise. Both are best-effort: any failure here
-//! just leaves makepkg's own "unknown public key" error to explain itself,
-//! exactly as if this step didn't exist.
+//! Key import is automatic, but runs only inside the existing bubblewrap
+//! sandbox as the build user. The host never creates or chmods a keyring and
+//! never starts GPG against package-controlled configuration. makepkg remains
+//! responsible for signature verification; import failures are reported and
+//! do not disable verification.
 
+use archon_sandbox::{BuildStage, SandboxRunner};
 use std::path::Path;
-use std::process::Command;
 
 const KEYSERVER: &str = "keyserver.ubuntu.com";
 
@@ -55,13 +51,16 @@ fn extract_valid_pgp_keys(pkgbuild: &str) -> Vec<String> {
     keys
 }
 
-/// Imports every key `validpgpkeys` names into `$pkg_dir/.gnupg`, the
-/// keyring the sandbox uses as `$GNUPGHOME` (`HOME` is set to `pkg_dir`
-/// inside the sandbox). Never fails the build itself — worst case,
-/// verification fails exactly as it would have without this step, and the
-/// caller is still responsible for making sure `$pkg_dir/.gnupg` ends up
-/// owned by whichever user the sandboxed build actually runs as.
+/// Prepare keys with the ordinary unprivileged sandbox runner.
 pub fn import_build_keys(pkg_dir: &Path) {
+    let runner = SandboxRunner::new(pkg_dir);
+    import_build_keys_with_runner(pkg_dir, &runner);
+}
+
+/// Monitored callers supply a runner configured to drop to the build user.
+/// Do not add host-side keyring filesystem operations here: even a preliminary
+/// symlink check would race changes to the package-controlled directory.
+pub fn import_build_keys_with_runner(pkg_dir: &Path, runner: &SandboxRunner) {
     let Ok(pkgbuild) = std::fs::read_to_string(pkg_dir.join("PKGBUILD")) else {
         return;
     };
@@ -69,58 +68,65 @@ pub fn import_build_keys(pkg_dir: &Path) {
     if keys.is_empty() {
         return;
     }
-    let gnupg_home = pkg_dir.join(".gnupg");
-    if std::fs::create_dir_all(&gnupg_home).is_err() {
+    // Refuse an obvious escape early. The sandbox's read-only host mount is
+    // still required to protect against replacement after this check.
+    if pkg_dir.join(".gnupg").is_symlink() {
+        eprintln!("warning: refusing PGP preparation: .gnupg is a symlink");
         return;
     }
-    // GnuPG refuses to treat a homedir as safe unless it's mode 0700 —
-    // create_dir_all leaves it at the default (looser) mode, which
-    // produced a harmless but noisy "unsafe ownership on homedir" warning
-    // on every sandboxed build (confirmed live). Best-effort: a failure
-    // here just means the warning comes back, not that verification
-    // itself breaks.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&gnupg_home, std::fs::Permissions::from_mode(0o700));
+    let mut command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        IMPORT_SCRIPT.into(),
+        "archon-key-import".into(),
+        KEYSERVER.into(),
+    ];
+    for key in keys {
+        if !matches!(key.len(), 40 | 64) || !key.bytes().all(|c| c.is_ascii_hexdigit()) {
+            eprintln!("warning: ignoring invalid validpgpkeys fingerprint {key:?}");
+            continue;
+        }
+        command.push(key);
     }
-    let bundled_dir = pkg_dir.join("keys").join("pgp");
-    for key in &keys {
-        let bundled = bundled_dir.join(format!("{key}.asc"));
-        // --no-permission-warning: on the monitored (--report) path this
-        // import runs as root, before the privilege drop, against a
-        // .gnupg that a prior unmonitored run may have already left
-        // owned by the target user — root doesn't own it, so GnuPG warns
-        // "unsafe ownership" even though the chown right after this
-        // function returns (see run_monitored_build) fixes it before
-        // anything privilege-dropped ever touches it. Cosmetic only; the
-        // warning doesn't reflect an actual gap since nothing unprivileged
-        // reads this directory before ownership is corrected.
-        let status = if bundled.is_file() {
-            Command::new("gpg")
-                .args(["--homedir"])
-                .arg(&gnupg_home)
-                .args(["--batch", "--quiet", "--no-permission-warning", "--import"])
-                .arg(&bundled)
-                .status()
-        } else {
-            Command::new("gpg")
-                .args(["--homedir"])
-                .arg(&gnupg_home)
-                .args([
-                    "--batch",
-                    "--quiet",
-                    "--no-permission-warning",
-                    "--keyserver",
-                    KEYSERVER,
-                    "--recv-keys",
-                ])
-                .arg(key)
-                .status()
-        };
-        let _ = status;
+    if command.len() == 5 {
+        return;
+    }
+    match runner
+        .spawn_command(BuildStage::Fetch, &command)
+        .and_then(|mut child| child.wait().map_err(archon_sandbox::SandboxError::Spawn))
+    {
+        Ok(status) if status.success() => {}
+        result => eprintln!(
+            "warning: sandboxed PGP key import failed ({result:?}); makepkg signature verification is still required"
+        ),
     }
 }
+
+// The script is constant; untrusted fingerprints are separate argv elements,
+// restricted to full hexadecimal fingerprints. --no-options ignores gpg.conf.
+// All filesystem and subprocess operations below occur inside bwrap, after
+// the build-user privilege drop. An outside symlink therefore hits a read-only
+// host mount (or a private /tmp, /home, /root or /run mount), never a writable host path.
+const IMPORT_SCRIPT: &str = r#"
+set -eu
+keyserver=$1
+shift
+if [ -L "$HOME/.gnupg" ]; then
+    echo 'refusing symlinked build keyring' >&2
+    exit 1
+fi
+umask 077
+mkdir -p -- "$HOME/.gnupg"
+chmod 700 -- "$HOME/.gnupg"
+for key do
+    bundled="$HOME/keys/pgp/$key.asc"
+    if [ -f "$bundled" ]; then
+        gpg --no-options --homedir "$HOME/.gnupg" --batch --quiet --import -- "$bundled"
+    else
+        gpg --no-options --homedir "$HOME/.gnupg" --batch --quiet --keyserver "$keyserver" --recv-keys -- "$key"
+    fi
+done
+"#;
 
 #[cfg(test)]
 mod tests {

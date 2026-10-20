@@ -1,0 +1,6 @@
+$ python3 scripts/repro-pgp-sandbox.py
+warning: ignoring invalid validpgpkeys fingerprint "--homedir=/outside"
+warning: ignoring invalid validpgpkeys fingerprint "../outside"
+PASS: key import is sandboxed; invalid fingerprints excluded; host keyring untouched
+
+EXIT: 0

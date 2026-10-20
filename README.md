@@ -160,9 +160,10 @@ regressions, raw verification logs, and unresolved security findings.
   eBPF is optional through `--report`. Zero-event and flagged reports block
   installation. Live tracepoint compatibility, event loss, malicious builds,
   and privileged installation are UNVERIFIED in this audit environment.
-- PGP preparation on the monitored root path operates on the package build
-  tree before dropping privileges. Symlink/config handling needs a dedicated
-  security fix; this audit does not establish that path as safe.
+- PGP imports now execute inside bwrap as the build user, with strict
+  fingerprints and GPG options disabled. The parent never modifies the build
+  keyring. Live kernel isolation and privileged user switching still need
+  end-to-end verification.
 - Archive identity is checked with pacman; ambiguous outputs fail explicitly.
   The race between checking a user-writable archive and privileged installation
   remains unresolved. Custom pacman.conf repository priority, cache concurrency,

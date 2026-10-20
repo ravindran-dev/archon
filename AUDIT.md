@@ -12,6 +12,29 @@ retained at the end. Their old blocked/fixed statuses describe earlier runs.
 Original code authorship and prior README/live-testing claims were not
 independently established. The README demo is now identified as historical.
 
+## Release-blocker follow-up (latest, supersedes the rows below)
+
+PGP traversal is fixed in source: the privileged parent no longer creates,
+chmods, chowns or runs GPG on the package keyring. Automatic imports use the
+existing bwrap filesystem policy and, on the monitored path, the same non-root
+build identity. Root build identities are rejected before spawning. Invalid
+fingerprints are excluded; GPG receives --no-options and explicit argument
+separators. Failed imports warn and leave makepkg signature verification active.
+
+Failed-first command: `python3 scripts/check-pgp-symlink.py`.
+Raw before: outside fixture mode 0755 -> 0700, exit 1.
+Raw after: mode 0755 -> 0755, no host GPG invocation, exit 0.
+[Before](audit/evidence/release-blockers/pgp-before.txt),
+[after](audit/evidence/release-blockers/pgp-after.txt),
+[sandbox/invalid-key regression](audit/evidence/release-blockers/pgp-sandbox-after.txt).
+The sandbox crate's 14 actual unit tests pass, including rejecting uid 0.
+Clippy/fmt pass; full workspace tests still cannot download fastrand v2.4.1.
+The matrix was rerun: all six UNVERIFIED because Docker is absent.
+Raw logs are under audit/evidence/release-blockers/pgp-*.txt and sandbox-tests.txt.
+Live bwrap isolation and privileged uid/gid dropping remain UNVERIFIED here;
+the mock regression proves dispatch and absence of host keyring mutations,
+not a functioning kernel namespace boundary.
+
 ## Current findings
 
 Locations refer to current source unless explicitly marked baseline.

@@ -1,0 +1,7 @@
+$ python3 scripts/check-pgp-symlink.py
+warning: refusing PGP preparation: .gnupg is a symlink
+Outside fixture directory mode BEFORE: 0755
+Outside fixture directory mode AFTER:  0755
+PASS: outside fixture directory unchanged; no host GPG invocation
+
+EXIT: 0
