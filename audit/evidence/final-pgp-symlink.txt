@@ -1,0 +1,7 @@
+$ python3 scripts/check-pgp-symlink.py
+Outside fixture directory mode BEFORE: 0755
+Outside fixture directory mode AFTER:  0700
+CONFIRMED: import_build_keys follows .gnupg symlink outside the package tree.
+UNVERIFIED: root impact; this probe runs only as the current unprivileged user.
+
+EXIT: 1

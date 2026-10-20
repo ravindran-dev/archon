@@ -1,0 +1,10 @@
+$ scripts/matrix.sh
+IMAGE	MODE	RESULT	REASON
+archlinux:latest	smoke	UNVERIFIED	docker not installed
+ubuntu:24.04	smoke	UNVERIFIED	docker not installed
+debian:stable	smoke	UNVERIFIED	docker not installed
+fedora:latest	smoke	UNVERIFIED	docker not installed
+opensuse/tumbleweed	smoke	UNVERIFIED	docker not installed
+alpine:latest	smoke	UNVERIFIED	docker not installed
+
+EXIT: 2

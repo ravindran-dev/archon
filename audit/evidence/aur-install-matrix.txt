@@ -1,0 +1,7 @@
+IMAGE	RESULT	REASON
+archlinux:latest	UNVERIFIED	docker not installed
+ubuntu:24.04	UNVERIFIED	docker not installed
+debian:stable	UNVERIFIED	docker not installed
+fedora:latest	UNVERIFIED	docker not installed
+opensuse/tumbleweed	UNVERIFIED	docker not installed
+alpine:latest	UNVERIFIED	docker not installed

@@ -1,0 +1,32 @@
+$ python3 scripts/repro-dpkg-checker.py
+$ verify_dpkg (deliberately incorrect mocked dpkg)
+MISMATCH: 1.0~rc1 vs 1.0 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~rc1 vs 1.0.1 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~rc1 vs 1.0~rc2 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~rc2 vs 1.0~rc1 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0~rc1~2 vs 1.0~rc1 -> Rust says Less, dpkg says Equal
+MATCH: 1~rc1 vs 1~rc1 -> Equal
+MISMATCH: 1.0~~ vs 1.0~ -> Rust says Less, dpkg says Equal
+MISMATCH: 1:2.0 vs 2.0~rc1 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0 vs 1.0~rc1 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0-1 vs 1.0-2 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0a vs 1.0 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0-1ubuntu1 vs 1.0-1 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0-1ubuntu1 vs 1.0-1ubuntu2 -> Rust says Less, dpkg says Equal
+MISMATCH: 2.0-1 vs 1:1.0-1 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0-1 vs 1.0-1+b1 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0+nmu1 vs 1.0 -> Rust says Greater, dpkg says Equal
+MISMATCH: 0.99 vs 1.0~alpha -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~alpha vs 1.0~beta -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~beta vs 1.0~rc -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0~rc vs 1.0 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0.0 vs 1.0 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0 vs 1.0.0 -> Rust says Less, dpkg says Equal
+MISMATCH: 1.0-1 vs 1.0-0.1 -> Rust says Greater, dpkg says Equal
+MISMATCH: 1.0-1~bpo10+1 vs 1.0-1 -> Rust says Less, dpkg says Equal
+MATCH: 1.2.3-4 vs 1.2.3-4 -> Equal
+23 mismatches found.
+exit: 1
+PASS: mismatches produce a failing exit status
+
+EXIT: 0

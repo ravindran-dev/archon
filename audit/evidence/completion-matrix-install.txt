@@ -1,0 +1,7 @@
+IMAGE	MODE	RESULT	REASON
+archlinux:latest	install	UNVERIFIED	docker not installed
+ubuntu:24.04	install	UNVERIFIED	docker not installed
+debian:stable	install	UNVERIFIED	docker not installed
+fedora:latest	install	UNVERIFIED	docker not installed
+opensuse/tumbleweed	install	UNVERIFIED	docker not installed
+alpine:latest	install	UNVERIFIED	docker not installed

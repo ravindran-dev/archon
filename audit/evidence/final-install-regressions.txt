@@ -1,0 +1,115 @@
+$ python3 scripts/repro-aur-install.py --direct
+$ direct-production-path install fixture-app --yes
+case: success
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-r1iy7y3g/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: success
+$ direct-production-path install fixture-app --yes
+case: install-failure
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+Error: pacman -U exited with exit status: 23 for fixture-app
+exit: 1
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-we72cl7o/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: install-failure
+$ direct-production-path install fixture-app --yes
+case: build-failure
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✗ fixture-app failed (Build)
+Error: sandboxed build failed for fixture-app (Build stage)
+exit: 1
+mock privileged argv: []
+PASS: build-failure
+$ direct-production-path install fixture-app --yes
+case: missing-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-7eidzalr/cache/archon/build/fixture-app, found 0; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: missing-artifact
+$ direct-production-path install fixture-app --yes
+case: signed-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-lsx1sbo8/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: signed-artifact
+$ direct-production-path install fixture-app --yes
+case: ambiguous-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-w4n3y75c/cache/archon/build/fixture-app, found 2; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: ambiguous-artifact
+$ direct-production-path install fixture-app --yes
+case: dependency-chain
+
+↺ z-lib already cloned
+✓ z-lib (Fetch)
+✓ z-lib (Build)
+✓ z-lib built
+==> Installing z-lib via pacman -U
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-z66j_q3u/cache/archon/build/z-lib/z-lib-1-1-x86_64.pkg.tar.zst'], ['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-z66j_q3u/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: dependency-chain
+$ direct-production-path install fixture-app --yes
+case: split-base
+
+↺ fixture-lib already cloned
+✓ suite (Fetch)
+✓ suite (Build)
+✓ suite built
+==> Installing fixture-lib via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-tghjjike/cache/archon/build/suite/fixture-lib-1-1-x86_64.pkg.tar.zst', '/tmp/archon-aur-install-tghjjike/cache/archon/build/suite/fixture-app-1-1-x86_64.pkg.tar.zst']]
+PASS: split-base
+$ direct-production-path install fixture-app --yes
+case: archive-identity
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-56fksh4l/cache/archon/build/fixture-app, found 0; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: archive-identity
+
+EXIT: 0

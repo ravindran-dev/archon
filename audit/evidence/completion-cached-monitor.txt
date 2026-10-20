@@ -1,0 +1,21 @@
+
+running 16 tests
+test policy::tests::allow_listed_tool_passes ... ok
+test policy::tests::custom_allowed_tool ... ok
+test policy::tests::dev_null_write_is_exempt ... ok
+test policy::tests::declared_connection_passes ... ok
+test policy::tests::exec_inside_build_dir_passes ... ok
+test policy::tests::readonly_open_outside_build_dir_passes ... ok
+test policy::tests::namespace_setup_files_are_exempt ... ok
+test report::tests::clean_report_says_so ... ok
+test report::tests::flagged_report_lists_reasons ... ok
+test policy::tests::unexpected_exec_is_flagged ... ok
+test policy::tests::write_open_inside_build_dir_passes ... ok
+test policy::tests::undeclared_connection_is_flagged ... ok
+test policy::tests::write_open_outside_build_dir_is_flagged ... ok
+test policy::tests::bwrap_and_makepkg_internals_are_allow_listed ... ok
+test store::tests::records_and_reads_back_events ... ok
+test store::tests::separate_builds_dont_mix_events ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

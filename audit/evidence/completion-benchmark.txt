@@ -1,0 +1,17 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+Official DB + local DB load: 2399.21 ms
+Official-only resolver; AUR/network/build/install are not exercised.
+PACKAGE	PACKAGES	RESOLVE_MS	RESULT
+vlc	208	46.34	PASS
+mpv	257	96.16	PASS
+ffmpeg	241	67.55	PASS
+libreoffice-fresh	194	40.64	PASS
+nmap	52	3.33	PASS
+wireshark-qt	288	95.19	PASS
+metasploit	98	14.07	PASS
+sqlmap	36	1.82	PASS
+hashcat	10	0.25	PASS
+john	91	9.28	PASS
+hydra	276	89.14	PASS
+aircrack-ng	66	5.08	PASS
+google-chrome	-	0.04	UNRESOLVED (official-only): package 'google-chrome' not found in official repos or the AUR (required by target)

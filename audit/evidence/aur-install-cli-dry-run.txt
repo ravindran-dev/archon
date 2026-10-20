@@ -1,0 +1,10 @@
+$ archon install fixture-app --yes --dry-run
+case: dry-run
+✓ resolved 1 package(s)
+▶ Install plan — 1 package (1 official, 0 aur)
+
+  Official (1 new/updated):
+    fixture-app  1-1
+exit: 0
+mock privileged argv: []
+PASS: dry-run

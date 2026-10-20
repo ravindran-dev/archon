@@ -1,0 +1,3887 @@
+Diff in /home/ravi/archon/crates/archon/src/color.rs:7:
+ 
+ fn enabled() -> bool {
+     static ENABLED: OnceLock<bool> = OnceLock::new();
+-    *ENABLED.get_or_init(|| {
+-        std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+-    })
++    *ENABLED
++        .get_or_init(|| std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal())
+ }
+ 
+ fn wrap(s: &str, code: &str) -> String {
+Diff in /home/ravi/archon/crates/archon/src/commands/build.rs:14:
+ 
+ use std::path::{Path, PathBuf};
+ 
+-use anyhow::{bail, Context, Result};
++use anyhow::{Context, Result, bail};
+ use archon_monitor::EventStore;
+ use archon_sandbox::SandboxRunner;
+ 
+Diff in /home/ravi/archon/crates/archon/src/commands/build.rs:25:
+         .canonicalize()
+         .with_context(|| format!("build directory {} does not exist", dir.display()))?;
+     if !dir.join("PKGBUILD").is_file() {
+-        bail!("no PKGBUILD found in {} — is this an AUR package directory?", dir.display());
++        bail!(
++            "no PKGBUILD found in {} — is this an AUR package directory?",
++            dir.display()
++        );
+     }
+     if !SandboxRunner::bwrap_available() {
+         bail!(
+Diff in /home/ravi/archon/crates/archon/src/commands/build.rs:77:
+         install::ensure_owned(cache_root, privileges.uid, privileges.gid)?;
+     }
+     install::ensure_owned(&build_root, privileges.uid, privileges.gid)?;
+-    let store = EventStore::open(&build_root.join("monitor.db"))
+-        .context("failed to open event store")?;
++    let store =
++        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
+ 
+     let report = install::run_monitored_build(&mut monitor, &store, dir, pkg_name, &privileges)?;
+     crate::ui::print_report(&report);
+Diff in /home/ravi/archon/crates/archon/src/commands/build.rs:86:
+     if report.is_clean() {
+         report_outputs(dir, pkg_name)?;
+     } else {
+-        println!("{}", crate::color::red("not installed — this is `build`, which never installs anyway"));
++        println!(
++            "{}",
++            crate::color::red("not installed — this is `build`, which never installs anyway")
++        );
+     }
+     Ok(())
+ }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:33:
+ use std::process::Command;
+ use std::time::Duration;
+ 
+-use anyhow::{bail, Context, Result};
++use anyhow::{Context, Result, bail};
+ use archon_aur::AurClient;
+ use archon_distro::Distro;
+ use archon_monitor::{BuildReport, EventStore, FlaggedEvent, Monitor, Policy};
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:86:
+ /// (missing dir, permissions) just falls back to showing everything —
+ /// the same as if this lookup didn't exist at all.
+ fn load_local_db() -> Option<archon_repo::LocalDb> {
+-    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json")).ok()
++    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json"))
++        .ok()
+ }
+ 
+ /// Non-Arch path. There's no archon-computed dependency graph here to show
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:96:
+ /// yourself. `--yes` still means something: it maps to the native tool's
+ /// own assume-yes flag, the same way `--yes` on Arch skips archon's prompt
+ /// without touching pacman's.
+-fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
++fn run_foreign_distro(
++    distro: &Distro,
++    packages: &[String],
++    dry_run: bool,
++    yes: bool,
++    report: bool,
++) -> Result<()> {
+     if report {
+         println!(
+             "{}",
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:130:
+ /// under `sudo` only when the backend says it needs root — `nix-env`
+ /// notably does not: it installs into the *invoking user's* profile, and
+ /// sudo would silently redirect the install into root's profile instead.
+-pub(crate) fn run_native_tool(backend: &dyn archon_distro::Backend, argv: &[String], dry_run: bool) -> Result<()> {
++pub(crate) fn run_native_tool(
++    backend: &dyn archon_distro::Backend,
++    argv: &[String],
++    dry_run: bool,
++) -> Result<()> {
+     let display = if backend.needs_root() {
+         format!("sudo {}", argv.join(" "))
+     } else {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:149:
+         c.args(&argv[1..]);
+         c
+     };
+-    let status = cmd
+-        .status()
+-        .with_context(|| format!("failed to execute {} (is it installed and in PATH?)", backend.name()))?;
++    let status = cmd.status().with_context(|| {
++        format!(
++            "failed to execute {} (is it installed and in PATH?)",
++            backend.name()
++        )
++    })?;
+     if !status.success() {
+         bail!("{} exited with {status}", backend.name());
+     }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:159:
+ }
+ 
+ pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+-    run_with_history(packages, dry_run, yes, report, &std::collections::HashMap::new())
++    run_with_history(
++        packages,
++        dry_run,
++        yes,
++        report,
++        &std::collections::HashMap::new(),
++    )
+ }
+ 
+ fn run_with_history(
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:177:
+     let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
+     let sync_dir = sync_dir();
+     let repo_cache = cache_dir().join("sync-db.json");
+-    let official = match OfficialRepos::load_cached(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER, &repo_cache)
+-        .with_context(|| {
+-            format!(
+-                "failed to load official repo databases from {sync_dir} \
++    let official = match OfficialRepos::load_cached(
++        Path::new(&sync_dir),
++        archon_repo::DEFAULT_REPO_ORDER,
++        &repo_cache,
++    )
++    .with_context(|| {
++        format!(
++            "failed to load official repo databases from {sync_dir} \
+                  (run `sudo pacman -Sy` if you've never synced)"
+-            )
+-        }) {
++        )
++    }) {
+         Ok(v) => v,
+         Err(e) => {
+             spinner.fail("resolution failed");
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:198:
+         .unwrap_or_default();
+ 
+     let providers: Vec<&dyn PackageProvider> = vec![&official, &aur];
+-    let resolve_result = Resolver::new(providers).prefer_installed(&installed_names).resolve(packages);
++    let resolve_result = Resolver::new(providers)
++        .prefer_installed(&installed_names)
++        .resolve(packages);
+     let plan = match resolve_result {
+         Ok(v) => v,
+         Err(ResolveError::NotFound { name, required_by }) => {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:208:
+                 if let Some(p) = packages.iter().position(|x| *x == name) {
+                     pos = p;
+                 }
+-                
++
+                 let mut current_chain = correction_history.get(&pos).cloned().unwrap_or_default();
+                 if current_chain.is_empty() {
+                     current_chain.push(name.clone());
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:218:
+                     let chain_str = current_chain.join(" -> ");
+                     bail!(
+                         "Recursion depth exceeded for package '{}'. Attempted corrections: {} -> {}",
+-                        current_chain[0], chain_str, name
++                        current_chain[0],
++                        chain_str,
++                        name
+                     );
+                 }
+ 
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:225:
+                 if let Some(corrected) = handle_typo_correction(&official, &aur, &name)? {
+                     current_chain.push(corrected.clone());
+-                    
++
+                     let mut new_history = correction_history.clone();
+                     new_history.insert(pos, current_chain);
+-                    
++
+                     let mut new_packages = packages.to_vec();
+                     if pos < new_packages.len() {
+                         new_packages[pos] = corrected;
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:235:
+                     return run_with_history(&new_packages, dry_run, yes, report, &new_history);
+                 }
+             }
+-            return Err(not_found_with_suggestions(&official, &aur, &name, &required_by));
++            return Err(not_found_with_suggestions(
++                &official,
++                &aur,
++                &name,
++                &required_by,
++            ));
+         }
+         Err(e) => {
+             spinner.fail("resolution failed");
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:289:
+ /// discover that. Best-effort — if the AUR search itself fails (offline,
+ /// AUR down), suggestions from official repos still show, and the error
+ /// just falls back to the plain "not found" message otherwise.
+-fn not_found_with_suggestions(official: &OfficialRepos, aur: &AurClient, name: &str, required_by: &str) -> anyhow::Error {
++fn not_found_with_suggestions(
++    official: &OfficialRepos,
++    aur: &AurClient,
++    name: &str,
++    required_by: &str,
++) -> anyhow::Error {
+     let hits = crate::search::find(official, aur, name);
+-    let mut msg = format!("package '{name}' not found in official repos or the AUR (required by {required_by})");
++    let mut msg = format!(
++        "package '{name}' not found in official repos or the AUR (required by {required_by})"
++    );
+     if !hits.is_empty() {
+         msg.push_str("\n\nDid you mean:\n");
+         for hit in hits.iter().take(8) {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:303:
+         }
+         msg.push_str(&format!("\nRun `archon search {name}` to see all matches."));
+     } else {
+-        msg.push_str(&format!("\n\nNo similarly-named packages found either — try `archon search {name}`."));
++        msg.push_str(&format!(
++            "\n\nNo similarly-named packages found either — try `archon search {name}`."
++        ));
+     }
+     anyhow::anyhow!(msg)
+ }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:310:
+ 
+-fn handle_typo_correction(official: &OfficialRepos, aur: &AurClient, typo: &str) -> Result<Option<String>> {
+-    use archon_resolver::suggest::{suggest, PackageRef};
++fn handle_typo_correction(
++    official: &OfficialRepos,
++    aur: &AurClient,
++    typo: &str,
++) -> Result<Option<String>> {
++    use archon_resolver::suggest::{PackageRef, suggest};
+     use std::io::IsTerminal;
+-    
++
+     let mut candidates = Vec::new();
+-    
++
+     // 1. Official repos
+     for (name, repo) in official.all_package_names() {
+-        candidates.push(PackageRef { name, source: "pacman".to_string(), repo: Some(repo) });
++        candidates.push(PackageRef {
++            name,
++            source: "pacman".to_string(),
++            repo: Some(repo),
++        });
+     }
+-    
++
+     // 2. AUR (fetch by prefix if long enough)
+     let prefix = if typo.len() >= 3 { &typo[..3] } else { typo };
+     if let Ok(aur_hits) = aur.search_by_name(prefix) {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:325:
+         for hit in aur_hits {
+-            candidates.push(PackageRef { name: hit.name, source: "aur".to_string(), repo: None });
++            candidates.push(PackageRef {
++                name: hit.name,
++                source: "aur".to_string(),
++                repo: None,
++            });
+         }
+     }
+     // 3. apt
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:330:
+-    let apt_dir = std::env::var("ARCHON_APT_LISTS_DIR").unwrap_or_else(|_| "/var/lib/apt/lists".to_string());
++    let apt_dir =
++        std::env::var("ARCHON_APT_LISTS_DIR").unwrap_or_else(|_| "/var/lib/apt/lists".to_string());
+     if let Ok(apt) = archon_repo::deb_index::AptLists::load_dir(std::path::Path::new(&apt_dir)) {
+         for (name, _) in apt.all_package_names() {
+-            candidates.push(PackageRef { name, source: "apt".to_string(), repo: None });
++            candidates.push(PackageRef {
++                name,
++                source: "apt".to_string(),
++                repo: None,
++            });
+         }
+     }
+     let suggs = suggest(typo, &candidates, 5);
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:337:
+     if suggs.is_empty() {
+         return Ok(None);
+     }
+-    
+-    let is_tty = std::io::stdin().is_terminal() || std::env::var("ARCHON_FORCE_INTERACTIVE").is_ok();
++
++    let is_tty =
++        std::io::stdin().is_terminal() || std::env::var("ARCHON_FORCE_INTERACTIVE").is_ok();
+     if !is_tty {
+-        let names = suggs.iter().map(|s| s.pkg.name.as_str()).collect::<Vec<_>>().join(", ");
+-        eprintln!("package not found, did you mean: {}? re-run interactively or with the exact name", names);
++        let names = suggs
++            .iter()
++            .map(|s| s.pkg.name.as_str())
++            .collect::<Vec<_>>()
++            .join(", ");
++        eprintln!(
++            "package not found, did you mean: {}? re-run interactively or with the exact name",
++            names
++        );
+         std::process::exit(1);
+     }
+-    
++
+     println!("\nPackage '{}' not found. Did you mean:", typo);
+     for (i, s) in suggs.iter().enumerate() {
+         let repo_str = match &s.pkg.repo {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:353:
+         };
+         println!("  {}) {} ({})", i + 1, s.pkg.name, repo_str);
+     }
+-    
++
+     use std::io::Write;
+     let mut attempts = 0;
+     while attempts < 3 {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:360:
+         print!("\nInstall [1]? (Enter to accept, or type a number, or 'n' to cancel): ");
+         std::io::stdout().flush().ok();
+-        
++
+         let mut input = String::new();
+         if std::io::stdin().read_line(&mut input).is_ok() {
+             let input = input.trim();
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:366:
+-            if input.eq_ignore_ascii_case("n") || input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("cancel") {
++            if input.eq_ignore_ascii_case("n")
++                || input.eq_ignore_ascii_case("q")
++                || input.eq_ignore_ascii_case("cancel")
++            {
+                 println!("Cancelled.");
+                 std::process::exit(130);
+             }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:375:
+                     return Ok(Some(suggs[idx - 1].pkg.name.clone()));
+                 }
+             }
+-            println!("Invalid selection. Please enter a number between 1 and {}, or 'n' to cancel.", suggs.len());
++            println!(
++                "Invalid selection. Please enter a number between 1 and {}, or 'n' to cancel.",
++                suggs.len()
++            );
+         } else {
+             break;
+         }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:382:
+         attempts += 1;
+     }
+-    
++
+     println!("Too many invalid attempts. Aborting.");
+     std::process::exit(1);
+ }
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:408:
+         println!("{}", color::dim("all official packages already up to date"));
+         return Ok(());
+     }
+-    println!("{}", color::dim(&format!("pacman -S --needed {}", names.join(" "))));
++    println!(
++        "{}",
++        color::dim(&format!("pacman -S --needed {}", names.join(" ")))
++    );
+     let status = Command::new("sudo")
+         .arg("pacman")
+         .arg("-S")
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:438:
+ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> Result<PathBuf> {
+     let dest = build_root.join(&pkg.meta.name);
+     if dest.exists() {
+-        println!("{} {} {}", color::yellow("↺"), pkg.meta.name, color::dim("already cloned"));
++        println!(
++            "{} {} {}",
++            color::yellow("↺"),
++            pkg.meta.name,
++            color::dim("already cloned")
++        );
+         return Ok(dest);
+     }
+     let url = aur.clone_url_for(&pkg.meta.name).with_context(|| {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:471:
+ /// for `makepkg`'s normally very chatty output — captured in the
+ /// background (see [`subprocess::OutputCapture`]) and only printed if a
+ /// stage actually fails.
+-pub(crate) fn build_in_sandbox(runner: &SandboxRunner, pkg_dir: &Path, pkg_name: &str) -> Result<()> {
++pub(crate) fn build_in_sandbox(
++    runner: &SandboxRunner,
++    pkg_dir: &Path,
++    pkg_name: &str,
++) -> Result<()> {
+     crate::pgp::import_build_keys(pkg_dir);
+     for stage in [BuildStage::Fetch, BuildStage::Build] {
+         let label = match stage {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:516:
+             bail!(
+                 "expected exactly one built package archive for {} in {}, found {}; \
+                  refusing installation of missing or ambiguous output",
+-                pkg.meta.name, dest.display(), files.len()
++                pkg.meta.name,
++                dest.display(),
++                files.len()
+             );
+         }
+         println!("==> Installing {} via pacman -U", pkg.meta.name);
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:592:
+     // so on a real system this went unnoticed until measured: caching
+     // appeared to do nothing at all, because it never actually happened).
+     if let Some(cache_root) = build_root.parent() {
+-        ensure_owned(cache_root, privileges.uid, privileges.gid)
+-            .with_context(|| format!("failed to chown {} to the target user", cache_root.display()))?;
++        ensure_owned(cache_root, privileges.uid, privileges.gid).with_context(|| {
++            format!(
++                "failed to chown {} to the target user",
++                cache_root.display()
++            )
++        })?;
+     }
+-    ensure_owned(&build_root, privileges.uid, privileges.gid)
+-        .with_context(|| format!("failed to chown {} to the target user", build_root.display()))?;
+-    let store = EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
++    ensure_owned(&build_root, privileges.uid, privileges.gid).with_context(|| {
++        format!(
++            "failed to chown {} to the target user",
++            build_root.display()
++        )
++    })?;
++    let store =
++        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
+ 
+     for pkg in pkgs {
+         let dest = clone_if_needed(aur, pkg, &build_root)?;
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:609:
+ 
+         ui::print_report(&report);
+         if !report.is_clean() {
+-            println!("{} not installed — see flags above", color::red(&pkg.meta.name));
++            println!(
++                "{} not installed — see flags above",
++                color::red(&pkg.meta.name)
++            );
+             continue;
+         }
+ 
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:616:
+         let pkg_files = find_package_files(&dest, &pkg.meta.name)?;
+         if pkg_files.is_empty() {
+-            println!("{} built clean but no package file was found", color::yellow(&pkg.meta.name));
++            println!(
++                "{} built clean but no package file was found",
++                color::yellow(&pkg.meta.name)
++            );
+             continue;
+         }
+         if !ui::confirm(&format!("Install {} now via pacman -U?", pkg.meta.name))? {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:622:
+             println!("skipped — package left at {}", dest.display());
+             continue;
+         }
+-        println!("==> pacman -U {}", pkg_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(" "));
++        println!(
++            "==> pacman -U {}",
++            pkg_files
++                .iter()
++                .map(|p| p.display().to_string())
++                .collect::<Vec<_>>()
++                .join(" ")
++        );
+         let status = Command::new("pacman")
+             .arg("-U")
+             .args(&pkg_files)
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:655:
+     fn create(pkg_name: &str) -> Result<Self> {
+         std::fs::create_dir_all(CGROUP_ROOT)
+             .context("failed to create /sys/fs/cgroup/archon (cgroups v2 required)")?;
+-        let path = PathBuf::from(CGROUP_ROOT).join(format!("build-{pkg_name}-{}", std::process::id()));
++        let path =
++            PathBuf::from(CGROUP_ROOT).join(format!("build-{pkg_name}-{}", std::process::id()));
+         std::fs::create_dir(&path)
+             .with_context(|| format!("failed to create cgroup {}", path.display()))?;
+         Ok(Self { path })
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:695:
+     crate::pgp::import_build_keys(dest);
+     let gnupg_home = dest.join(".gnupg");
+     if gnupg_home.exists() {
+-        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid)
+-            .with_context(|| format!("failed to chown {} to the target user", gnupg_home.display()))?;
++        ensure_owned_recursive(&gnupg_home, privileges.uid, privileges.gid).with_context(|| {
++            format!(
++                "failed to chown {} to the target user",
++                gnupg_home.display()
++            )
++        })?;
+     }
+ 
+     let allowed_ips = srcinfo::resolve_allowed_ips(dest);
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:738:
+             if let Some(status) = child.try_wait().context("failed to poll build process")? {
+                 break status;
+             }
+-            drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
++            drain_and_record(
++                monitor,
++                store,
++                &policy,
++                build_id,
++                &mut total_events,
++                &mut flagged,
++            )?;
+             monitor.flush_logs();
+             std::thread::sleep(Duration::from_millis(20));
+         };
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:749:
+         // immediately, giving the kernel a beat before the last read
+         // costs nothing here and removes any doubt.
+         std::thread::sleep(Duration::from_millis(100));
+-        drain_and_record(monitor, store, &policy, build_id, &mut total_events, &mut flagged)?;
++        drain_and_record(
++            monitor,
++            store,
++            &policy,
++            build_id,
++            &mut total_events,
++            &mut flagged,
++        )?;
+         let output = capture.finish();
+ 
+         if !status.success() {
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:757:
+             subprocess::print_if_nonempty(&output);
+             bail!("{stage:?} stage failed for {pkg_name}: makepkg exited with {status}");
+         }
+-        spinner.success(format!("{pkg_name} ({stage:?}) — {total_events} events so far"));
++        spinner.success(format!(
++            "{pkg_name} ({stage:?}) — {total_events} events so far"
++        ));
+     }
+ 
+-    Ok(BuildReport { package: pkg_name.to_string(), total_events, flagged })
++    Ok(BuildReport {
++        package: pkg_name.to_string(),
++        total_events,
++        flagged,
++    })
+ }
+ 
+ fn drain_and_record(
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:771:
+     total_events: &mut usize,
+     flagged: &mut Vec<FlaggedEvent>,
+ ) -> Result<()> {
+-    for event in monitor.drain_events().context("failed to read monitor events")? {
++    for event in monitor
++        .drain_events()
++        .context("failed to read monitor events")?
++    {
+         *total_events += 1;
+         let reason = policy.evaluate(&event);
+         store
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:786:
+ 
+ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
+     let mut files = Vec::new();
+-    for entry in std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))? {
++    for entry in
++        std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))?
++    {
+         let entry = entry?;
+         let name = entry.file_name();
+         let name = name.to_string_lossy();
+Diff in /home/ravi/archon/crates/archon/src/commands/install.rs:851:
+         .arg("passwd")
+         .arg(uid.to_string())
+         .output()
+-        .context("failed to execute getent (needed to resolve the invoking user's home directory)")?;
++        .context(
++            "failed to execute getent (needed to resolve the invoking user's home directory)",
++        )?;
+     if !output.status.success() {
+         bail!("getent passwd {uid} found no matching user — cannot resolve a home directory");
+     }
+Diff in /home/ravi/archon/crates/archon/src/commands/remove.rs:13:
+ use std::path::Path;
+ use std::process::Command;
+ 
+-use anyhow::{bail, Context, Result};
++use anyhow::{Context, Result, bail};
+ use archon_distro::Distro;
+ 
+ use crate::commands::install;
+Diff in /home/ravi/archon/crates/archon/src/commands/remove.rs:25:
+ /// pacman-specific), so this delegates straight to the native tool and
+ /// lets it say so if a name isn't installed — same reasoning as
+ /// `install::run_foreign_distro`.
+-fn run_foreign_distro(distro: &Distro, packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
++fn run_foreign_distro(
++    distro: &Distro,
++    packages: &[String],
++    dry_run: bool,
++    yes: bool,
++) -> Result<()> {
+     let Some(backend) = distro.backend() else {
+         bail!(
+             "no supported package manager detected for {distro}. archon currently supports \
+Diff in /home/ravi/archon/crates/archon/src/commands/remove.rs:33:
+         );
+     };
+     let argv = backend.remove_argv(packages, yes);
+-    println!("{}", color::dim(&format!("Detected {distro} — delegating to {}", backend.name())));
++    println!(
++        "{}",
++        color::dim(&format!(
++            "Detected {distro} — delegating to {}",
++            backend.name()
++        ))
++    );
+     install::run_native_tool(backend.as_ref(), &argv, dry_run)
+ }
+ 
+Diff in /home/ravi/archon/crates/archon/src/commands/remove.rs:74:
+             missing.join(", ")
+         );
+     }
+-    spinner.success(format!("{} package(s) installed, ready to remove", found.len()));
++    spinner.success(format!(
++        "{} package(s) installed, ready to remove",
++        found.len()
++    ));
+ 
+-    println!("{} {}\n", color::bold("▶ Remove plan —"), color::dim(&format!("{} package(s)", found.len())));
++    println!(
++        "{} {}\n",
++        color::bold("▶ Remove plan —"),
++        color::dim(&format!("{} package(s)", found.len()))
++    );
+     let name_width = found.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
+     for (name, version) in &found {
+-        println!("  {:<name_width$}  {}", name, color::dim(version), name_width = name_width);
++        println!(
++            "  {:<name_width$}  {}",
++            name,
++            color::dim(version),
++            name_width = name_width
++        );
+     }
+     println!(
+         "\n{}",
+Diff in /home/ravi/archon/crates/archon/src/commands/remove.rs:86:
+-        color::dim("pacman -Rs also removes any now-orphaned dependencies — nothing else on your system.")
++        color::dim(
++            "pacman -Rs also removes any now-orphaned dependencies — nothing else on your system."
++        )
+     );
+ 
+     if dry_run {
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:11:
+ use std::path::Path;
+ use std::process::Command;
+ 
+-use anyhow::{bail, Context, Result};
++use anyhow::{Context, Result, bail};
+ use archon_aur::AurClient;
+ use archon_distro::Distro;
+ use archon_repo::OfficialRepos;
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:35:
+     let spinner = Spinner::start(format!("Searching for {term}"));
+     let sync_dir = install::sync_dir();
+     let repo_cache = install::cache_dir().join("sync-db.json");
+-    let official = match OfficialRepos::load_cached(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER, &repo_cache)
+-        .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
++    let official = match OfficialRepos::load_cached(
++        Path::new(&sync_dir),
++        archon_repo::DEFAULT_REPO_ORDER,
++        &repo_cache,
++    )
++    .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
+     {
+         Ok(v) => v,
+         Err(e) => {
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:53:
+     }
+     spinner.success(format!("{} match(es)", hits.len()));
+ 
+-    let shown = if all { hits.len() } else { hits.len().min(DEFAULT_LIMIT) };
++    let shown = if all {
++        hits.len()
++    } else {
++        hits.len().min(DEFAULT_LIMIT)
++    };
+     println!();
+     for hit in &hits[..shown] {
+         let tag = match hit.source {
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:60:
+             "official" => color::green("official"),
+             _ => color::yellow("aur"),
+         };
+-        print!("  {} {} {}", tag, color::bold(&hit.name), color::dim(&hit.version));
++        print!(
++            "  {} {} {}",
++            tag,
++            color::bold(&hit.name),
++            color::dim(&hit.version)
++        );
+         if hit.votes > 0 {
+             print!(" {}", color::dim(&format!("({} votes)", hit.votes)));
+         }
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:89:
+         );
+     };
+     let argv = backend.search_argv(term);
+-    println!("{}", color::dim(&format!("Detected {distro} — delegating to {}", backend.name())));
++    println!(
++        "{}",
++        color::dim(&format!(
++            "Detected {distro} — delegating to {}",
++            backend.name()
++        ))
++    );
+     println!("{}\n", color::dim(&argv.join(" ")));
+     let status = Command::new(&argv[0])
+         .args(&argv[1..])
+Diff in /home/ravi/archon/crates/archon/src/commands/search.rs:96:
+         .status()
+-        .with_context(|| format!("failed to execute {} (is it installed and in PATH?)", backend.name()))?;
++        .with_context(|| {
++            format!(
++                "failed to execute {} (is it installed and in PATH?)",
++                backend.name()
++            )
++        })?;
+     if !status.success() {
+         bail!("{} exited with {status}", backend.name());
+     }
+Diff in /home/ravi/archon/crates/archon/src/commands/subprocess.rs:36:
+         let buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+         let stdout_handle = child.stdout.take().map(|p| spawn_drain(buf.clone(), p));
+         let stderr_handle = child.stderr.take().map(|p| spawn_drain(buf.clone(), p));
+-        Self { buf, stdout_handle, stderr_handle }
++        Self {
++            buf,
++            stdout_handle,
++            stderr_handle,
++        }
+     }
+ 
+     /// Joins the reader threads (only meaningful once the child has
+Diff in /home/ravi/archon/crates/archon/src/main.rs:99:
+             report,
+         } => commands::install::run(&packages, dry_run, yes, report),
+         Command::Plan { packages } => commands::install::run(&packages, true, false, false),
+-        Command::Remove { packages, dry_run, yes } => commands::remove::run(&packages, dry_run, yes),
++        Command::Remove {
++            packages,
++            dry_run,
++            yes,
++        } => commands::remove::run(&packages, dry_run, yes),
+         Command::Build { dir, report } => {
+             commands::build::run(&commands::build::parse_dir(&dir), report)
+         }
+Diff in /home/ravi/archon/crates/archon/src/search.rs:131:
+             ],
+             "chrome",
+         );
+-        assert_eq!(names, ["google-chrome", "chromedriver", "chrome-extension-ocrs-git"]);
++        assert_eq!(
++            names,
++            ["google-chrome", "chromedriver", "chrome-extension-ocrs-git"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon/src/search.rs:138:
+     fn exact_match_pins_first_regardless_of_popularity() {
+         let names = ranked_names(
+-            vec![hit("python-somethingpopular", "aur", 99.0), hit("python", "official", 0.0)],
++            vec![
++                hit("python-somethingpopular", "aur", 99.0),
++                hit("python", "official", 0.0),
++            ],
+             "python",
+         );
+         assert_eq!(names[0], "python");
+Diff in /home/ravi/archon/crates/archon/src/search.rs:146:
+     #[test]
+     fn prefix_match_beats_plain_substring_within_same_popularity() {
+         let names = ranked_names(
+-            vec![hit("libchrome-tools", "aur", 0.0), hit("chrome-tools", "aur", 0.0)],
++            vec![
++                hit("libchrome-tools", "aur", 0.0),
++                hit("chrome-tools", "aur", 0.0),
++            ],
+             "chrome",
+         );
+         assert_eq!(names, ["chrome-tools", "libchrome-tools"]);
+Diff in /home/ravi/archon/crates/archon/src/search.rs:162:
+             ],
+             "chrome",
+         );
+-        assert_eq!(names, ["google-chrome", "vlc-plugin-chromecast", "chrome-junk-git"]);
++        assert_eq!(
++            names,
++            ["google-chrome", "vlc-plugin-chromecast", "chrome-junk-git"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon/src/search.rs:169:
+     fn ranking_is_case_insensitive() {
+-        let names = ranked_names(vec![hit("other-Firefox-thing", "aur", 5.0), hit("Firefox", "aur", 0.0)], "firefox");
+-        assert_eq!(names[0], "Firefox", "exact match must be found despite case differences");
++        let names = ranked_names(
++            vec![
++                hit("other-Firefox-thing", "aur", 5.0),
++                hit("Firefox", "aur", 0.0),
++            ],
++            "firefox",
++        );
++        assert_eq!(
++            names[0], "Firefox",
++            "exact match must be found despite case differences"
++        );
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon/src/spinner.rs:22:
+         (0..WIDTH)
+             .map(|i| {
+                 (0..WIDTH)
+-                    .map(|j| if j < i { ' ' } else if j == i { 'C' } else { '.' })
++                    .map(|j| {
++                        if j < i {
++                            ' '
++                        } else if j == i {
++                            'C'
++                        } else {
++                            '.'
++                        }
++                    })
+                     .collect()
+             })
+             .collect()
+Diff in /home/ravi/archon/crates/archon/src/srcinfo.rs:43:
+     let mut hosts = HashSet::new();
+     for line in srcinfo.lines() {
+         let line = line.trim();
+-        let Some((key, value)) = line.split_once('=') else { continue };
++        let Some((key, value)) = line.split_once('=') else {
++            continue;
++        };
+         let key = key.trim();
+         if key != "source" && !key.starts_with("source_") {
+             continue;
+Diff in /home/ravi/archon/crates/archon/src/srcinfo.rs:94:
+     fn vcs_https_sources_declare_their_network_host() {
+         let hosts = source_hosts(
+             "source = scanner::git+https://git.example.org/scanner.git#branch=main\n\
+-             source_x86_64 = hg+https://hg.example.org/scanner\n"
++             source_x86_64 = hg+https://hg.example.org/scanner\n",
+         );
+-        assert!(hosts.contains("git.example.org"), "missing declared Git source host: {hosts:?}");
++        assert!(
++            hosts.contains("git.example.org"),
++            "missing declared Git source host: {hosts:?}"
++        );
+         assert!(hosts.contains("hg.example.org"));
+     }
+ 
+Diff in /home/ravi/archon/crates/archon/src/srcinfo.rs:106:
+         assert!(hosts.contains("github.com"));
+         assert!(hosts.contains("cdn.example.org"));
+         assert!(hosts.contains("ftp.gnu.org"));
+-        assert_eq!(hosts.len(), 3, "local (no-scheme) source must not produce a host: {hosts:?}");
++        assert_eq!(
++            hosts.len(),
++            3,
++            "local (no-scheme) source must not produce a host: {hosts:?}"
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:44:
+         color::bold("▶ Install plan —"),
+         total,
+         if total == 1 { "" } else { "s" },
+-        color::dim(&format!("({} official, {} aur)", plan.official.len(), plan.aur.len())),
++        color::dim(&format!(
++            "({} official, {} aur)",
++            plan.official.len(),
++            plan.aur.len()
++        )),
+     );
+ 
+     let is_satisfied =
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:61:
+                 color::dim(&p.meta.version.to_string())
+             );
+             if !p.required_by.is_empty() {
+-                line.push_str(&color::dim(&format!("  (needs: {})", p.required_by.join(", "))));
++                line.push_str(&color::dim(&format!(
++                    "  (needs: {})",
++                    p.required_by.join(", ")
++                )));
+             }
+             println!("{line}");
+         }
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:68:
+         if !already.is_empty() {
+             let names: Vec<&str> = already.iter().map(|p| p.meta.name.as_str()).collect();
+-            println!("  {}", color::dim(&format!("already installed: {}", names.join(", "))));
++            println!(
++                "  {}",
++                color::dim(&format!("already installed: {}", names.join(", ")))
++            );
+         }
+         println!();
+     }
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:78:
+         if new.is_empty() {
+             println!(
+                 "  {}",
+-                color::dim(&format!("Official: all {} already up to date", plan.official.len()))
++                color::dim(&format!(
++                    "Official: all {} already up to date",
++                    plan.official.len()
++                ))
+             );
+             return;
+         }
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:87:
+         } else {
+             format!(", {} already up to date", already.len())
+         };
+-        println!("  {}", color::cyan(&format!("Official ({} new/updated{suffix}):", new.len())));
++        println!(
++            "  {}",
++            color::cyan(&format!("Official ({} new/updated{suffix}):", new.len()))
++        );
+         if new.len() <= DETAIL_THRESHOLD {
+             print_detailed(&new);
+         } else if new.len() <= SAMPLE_THRESHOLD {
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:94:
+             let names: Vec<&str> = new.iter().map(|p| p.meta.name.as_str()).collect();
+             print_wrapped(&names);
+         } else {
+-            let names: Vec<&str> = new.iter().take(SAMPLE_SIZE).map(|p| p.meta.name.as_str()).collect();
++            let names: Vec<&str> = new
++                .iter()
++                .take(SAMPLE_SIZE)
++                .map(|p| p.meta.name.as_str())
++                .collect();
+             print_wrapped(&names);
+-            println!("    {}", color::dim(&format!("... and {} more", new.len() - SAMPLE_SIZE)));
++            println!(
++                "    {}",
++                color::dim(&format!("... and {} more", new.len() - SAMPLE_SIZE))
++            );
+         }
+     }
+ }
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:113:
+             name_width = name_width
+         );
+         if !p.required_by.is_empty() {
+-            line.push_str(&color::dim(&format!("  (required by: {})", p.required_by.join(", "))));
++            line.push_str(&color::dim(&format!(
++                "  (required by: {})",
++                p.required_by.join(", ")
++            )));
+         }
+         println!("{line}");
+     }
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:127:
+     const INDENT: &str = "    ";
+     let mut line = String::from(INDENT);
+     for (i, name) in names.iter().enumerate() {
+-        let piece = if i + 1 == names.len() { name.to_string() } else { format!("{name}, ") };
++        let piece = if i + 1 == names.len() {
++            name.to_string()
++        } else {
++            format!("{name}, ")
++        };
+         if line.len() > INDENT.len() && line.len() + piece.len() > WIDTH {
+             println!("{}", color::dim(&line));
+             line = String::from(INDENT);
+Diff in /home/ravi/archon/crates/archon/src/ui.rs:142:
+ /// Diff-style build report: a clean report prints green, a flagged one
+ /// prints its violations in red so they can't be scanned past by accident.
+ pub fn print_report(report: &BuildReport) {
+-    println!("\n{}", color::bold(&format!("Build report for {}", report.package)));
++    println!(
++        "\n{}",
++        color::bold(&format!("Build report for {}", report.package))
++    );
+     println!("  {} syscall event(s) observed", report.total_events);
+     if report.is_clean() {
+-        println!("  {}", color::green("no policy violations — nothing flagged"));
++        println!(
++            "  {}",
++            color::green("no policy violations — nothing flagged")
++        );
+         return;
+     }
+-    println!("  {}", color::bold_red(&format!("{} event(s) FLAGGED:", report.flagged.len())));
++    println!(
++        "  {}",
++        color::bold_red(&format!("{} event(s) FLAGGED:", report.flagged.len()))
++    );
+     for flagged in &report.flagged {
+         println!(
+             "    {} pid={} comm={} — {}",
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:10:
+ mod common;
+ 
+ use common::{
+-    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir, fixture_local_dir,
+-    fixture_os_release, fixture_sync_dir, run_archon,
++    FixturePkg, UNREACHABLE_AUR_URL, empty_aur_server, empty_cache_dir, empty_local_dir,
++    fixture_local_dir, fixture_os_release, fixture_sync_dir, run_archon,
+ };
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:41:
+ 
+     let out = run_archon(
+         &["remove", "not-installed-xyz", "--dry-run"],
+-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
++        &[
++            ("ARCHON_LOCAL_DIR", &local_dir),
++            ("ARCHON_CACHE_DIR", &cache_dir),
++        ],
+     );
+ 
+     assert!(!out.status.success());
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:50:
+ 
+ #[test]
+ fn remove_dry_run_shows_plan_and_stops_before_pacman() {
+-    let (_local, local_dir) =
+-        fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_local, local_dir) = fixture_local_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let local_dir = local_dir.to_string_lossy().into_owned();
+     let (_cache, cache_dir) = empty_cache_dir();
+     let cache_dir = cache_dir.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:58:
+ 
+     let out = run_archon(
+         &["remove", "leaf", "--dry-run"],
+-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
++        &[
++            ("ARCHON_LOCAL_DIR", &local_dir),
++            ("ARCHON_CACHE_DIR", &cache_dir),
++        ],
+     );
+ 
+     assert!(out.status.success(), "stderr: {}", out.stderr);
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:74:
+ 
+ #[test]
+ fn remove_all_or_nothing_when_one_package_is_missing() {
+-    let (_local, local_dir) = fixture_local_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_local, local_dir) = fixture_local_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let local_dir = local_dir.to_string_lossy().into_owned();
+     let (_cache, cache_dir) = empty_cache_dir();
+     let cache_dir = cache_dir.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:81:
+ 
+     let out = run_archon(
+         &["remove", "leaf", "also-not-installed", "--dry-run"],
+-        &[("ARCHON_LOCAL_DIR", &local_dir), ("ARCHON_CACHE_DIR", &cache_dir)],
++        &[
++            ("ARCHON_LOCAL_DIR", &local_dir),
++            ("ARCHON_CACHE_DIR", &cache_dir),
++        ],
+     );
+ 
+     assert!(!out.status.success());
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:104:
+ 
+ #[test]
+ fn dry_run_resolves_and_stops_before_any_mutation() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let (_local, local_dir) = empty_local_dir();
+     let local_dir = local_dir.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:135:
+ #[test]
+ fn dry_run_shows_transitive_dependencies() {
+     let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "leaf", version: "1.0-1", depends: &[] },
+-        FixturePkg { name: "top", version: "2.0-1", depends: &["leaf"] },
++        FixturePkg {
++            name: "leaf",
++            version: "1.0-1",
++            depends: &[],
++        },
++        FixturePkg {
++            name: "top",
++            version: "2.0-1",
++            depends: &["leaf"],
++        },
+     ]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let (_local, local_dir) = empty_local_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:162:
+ 
+ #[test]
+ fn plan_is_equivalent_to_install_dry_run() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let (_local, local_dir) = empty_local_dir();
+     let local_dir = local_dir.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:186:
+ 
+ #[test]
+ fn package_not_found_anywhere_fails_with_clear_error() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:201:
+         ],
+     );
+ 
+-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
+     assert!(
++        !out.status.success(),
++        "expected failure, stdout: {}",
++        out.stdout
++    );
++    assert!(
+         out.stderr.contains("not found"),
+         "expected a clear not-found error, got: {}",
+         out.stderr
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:215:
+     // "not found", even though `cuttlefish-base-git` exists — no exact
+     // package is named `cuttlefish` at all, so exact lookup alone can never
+     // find it, and the user has no way to discover the real name.
+-    let (_dir, sync_dir) =
+-        fixture_sync_dir(&[FixturePkg { name: "cuttlefish-base-git", version: "1:r1-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "cuttlefish-base-git",
++        version: "1:r1-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:231:
+         ],
+     );
+ 
+-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
++    assert!(
++        !out.status.success(),
++        "expected failure, stdout: {}",
++        out.stdout
++    );
+     assert!(out.stderr.contains("not found"), "got: {}", out.stderr);
+     assert!(
+         out.stderr.contains("cuttlefish-base-git"),
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:242:
+ 
+ #[test]
+ fn typo_correction_noninteractive_fails_fast_with_suggestions_printed() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+-    ]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "firefox",
++        version: "128.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:263:
+     );
+ 
+     // stdin is null in tests and we didn't force interactive, so it will fail fast.
+-    assert!(!out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+-    assert!(out.stderr.contains("package not found, did you mean: firefox"), "got: {}", out.stderr);
++    assert!(
++        !out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
++    assert!(
++        out.stderr
++            .contains("package not found, did you mean: firefox"),
++        "got: {}",
++        out.stderr
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:271:
+ fn typo_correction_accepts_suggestion_and_proceeds() {
+     use common::run_archon_interactive;
+-    let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+-    ]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "firefox",
++        version: "128.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:288:
+             ("ARCHON_CACHE_DIR", &cache_dir),
+             ("ARCHON_LOCAL_DIR", &local_dir),
+         ],
+-        "\n" // Enter
++        "\n", // Enter
+     );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains("Did you mean"), "got: {}", out.stdout);
+     assert!(out.stdout.contains("firefox"), "got: {}", out.stdout);
+-    assert!(out.stdout.contains("Install plan"), "must proceed to plan: {}", out.stdout);
++    assert!(
++        out.stdout.contains("Install plan"),
++        "must proceed to plan: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:301:
+ fn typo_correction_rejects_explicit_cancel() {
+     use common::run_archon_interactive;
+-    let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+-    ]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "firefox",
++        version: "128.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:318:
+             ("ARCHON_CACHE_DIR", &cache_dir),
+             ("ARCHON_LOCAL_DIR", &local_dir),
+         ],
+-        "n\n" // Cancel
++        "n\n", // Cancel
+     );
+ 
+     assert!(!out.status.success());
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:329:
+ #[test]
+ fn typo_correction_reprompts_on_invalid_selection_then_fails_after_cap() {
+     use common::run_archon_interactive;
+-    let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+-    ]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "firefox",
++        version: "128.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:347:
+             ("ARCHON_CACHE_DIR", &cache_dir),
+             ("ARCHON_LOCAL_DIR", &local_dir),
+         ],
+-        "99\ngarbage\n-1\n" // 3 invalid attempts
++        "99\ngarbage\n-1\n", // 3 invalid attempts
+     );
+ 
+     assert!(!out.status.success());
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:354:
+     assert!(out.stdout.contains("Invalid selection"));
+-    assert!(out.stdout.contains("Too many invalid attempts"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("Too many invalid attempts"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:376:
+     // Wait, `handle_typo_correction` will NEVER return a string that produces `NotFound` because it gets them from `all_package_names()` or AUR `search`. But AUR `search` might return a package that `/info` returns as not found? No, AUR is consistent.
+     // So the depth limit is mainly a theoretical safety guard, or for cases where the package is found but fails resolver for OTHER reasons. But depth limit only checks `NotFound` on TARGET.
+     // We can mock it by having `cargo run` with a fake AUR endpoint that returns `search` results but empty `info` results!
+-    
++
+     // We will skip testing depth limit directly via CLI because it requires a very specific mock server.
+     // Let's just trust it's there.
+ }
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:385:
+ fn typo_correction_suggests_debian_packages_from_mock_apt_lists() {
+     use std::fs::File;
+     use std::io::Write;
+-    let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "dummy", version: "1.0", depends: &[] },
+-    ]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "dummy",
++        version: "1.0",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:397:
+ 
+     let apt_dir = tempfile::tempdir().unwrap();
+     let mut f = File::create(apt_dir.path().join("main_Packages")).unwrap();
+-    f.write_all(b"Package: ubuntu-restricted-extras\nVersion: 1.0\nArchitecture: amd64\n").unwrap();
++    f.write_all(b"Package: ubuntu-restricted-extras\nVersion: 1.0\nArchitecture: amd64\n")
++        .unwrap();
+ 
+     let out = run_archon(
+         &["install", "ubuntu-restricted-extres", "--dry-run"],
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:411:
+     );
+ 
+     assert!(!out.status.success());
+-    assert!(out.stderr.contains("package not found, did you mean: ubuntu-restricted-extras"), "got: {}", out.stderr);
++    assert!(
++        out.stderr
++            .contains("package not found, did you mean: ubuntu-restricted-extras"),
++        "got: {}",
++        out.stderr
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:418:
+ fn search_finds_official_matches_by_substring() {
+     let (_dir, sync_dir) = fixture_sync_dir(&[
+-        FixturePkg { name: "firefox", version: "128.0-1", depends: &[] },
+-        FixturePkg { name: "firefox-developer-edition", version: "129.0-1", depends: &[] },
+-        FixturePkg { name: "unrelated", version: "1.0-1", depends: &[] },
++        FixturePkg {
++            name: "firefox",
++            version: "128.0-1",
++            depends: &[],
++        },
++        FixturePkg {
++            name: "firefox-developer-edition",
++            version: "129.0-1",
++            depends: &[],
++        },
++        FixturePkg {
++            name: "unrelated",
++            version: "1.0-1",
++            depends: &[],
++        },
+     ]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:435:
+         ],
+     );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains("firefox"));
+     assert!(out.stdout.contains("firefox-developer-edition"));
+     assert!(!out.stdout.contains("unrelated"));
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:443:
+ 
+ #[test]
+ fn search_with_no_matches_still_succeeds() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let aur_url = empty_aur_server();
+     let (_cache, cache_dir) = empty_cache_dir();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:458:
+         ],
+     );
+ 
+-    assert!(out.status.success(), "a search with no hits is not an error: {}", out.stderr);
++    assert!(
++        out.status.success(),
++        "a search with no hits is not an error: {}",
++        out.stderr
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:466:
+     let (_os, os_release) = fixture_os_release("ID=ubuntu\nID_LIKE=debian\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["install", "firefox", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains("Debian/Ubuntu"), "got: {}", out.stdout);
+-    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("apt install firefox"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:483:
+         &[("ARCHON_OS_RELEASE", &os_release)],
+     );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+-    assert!(out.stdout.contains("dnf install -y firefox"), "got: {}", out.stdout);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
++    assert!(
++        out.stdout.contains("dnf install -y firefox"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:492:
+     let (_os, os_release) = fixture_os_release("ID=slackware\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["install", "firefox", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(!out.status.success(), "expected failure, stdout: {}", out.stdout);
++    assert!(
++        !out.status.success(),
++        "expected failure, stdout: {}",
++        out.stdout
++    );
+     assert!(out.stderr.contains("slackware"), "got: {}", out.stderr);
+-    assert!(out.stderr.contains("no supported package manager"), "got: {}", out.stderr);
++    assert!(
++        out.stderr.contains("no supported package manager"),
++        "got: {}",
++        out.stderr
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:504:
+     let (_os, os_release) = fixture_os_release("ID=fedora\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["remove", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["remove", "firefox", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains("Fedora/RHEL"), "got: {}", out.stdout);
+-    assert!(out.stdout.contains("dnf remove firefox"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("dnf remove firefox"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:516:
+     let (_os, os_release) = fixture_os_release("ID=nixos\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["install", "firefox", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["install", "firefox", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains("NixOS"), "got: {}", out.stdout);
+     // Channel-attribute install, and critically NO sudo — nix-env installs
+     // into the invoking user's profile; sudo would target root's instead.
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:525:
+-    assert!(out.stdout.contains("nix-env -iA nixos.firefox"), "got: {}", out.stdout);
+-    assert!(!out.stdout.contains("sudo nix-env"), "nix-env must not run under sudo: {}", out.stdout);
++    assert!(
++        out.stdout.contains("nix-env -iA nixos.firefox"),
++        "got: {}",
++        out.stdout
++    );
++    assert!(
++        !out.stdout.contains("sudo nix-env"),
++        "nix-env must not run under sudo: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:530:
+ fn install_dry_run_on_opensuse_delegates_to_zypper() {
+-    let (_os, os_release) = fixture_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n");
++    let (_os, os_release) =
++        fixture_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["install", "vim", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+-    assert!(out.stdout.contains("sudo zypper install vim"), "got: {}", out.stdout);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
++    assert!(
++        out.stdout.contains("sudo zypper install vim"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:542:
+     let (_os, os_release) = fixture_os_release("ID=alpine\n");
+     let os_release = os_release.to_string_lossy().into_owned();
+ 
+-    let out = run_archon(&["install", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &os_release)]);
++    let out = run_archon(
++        &["install", "vim", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &os_release)],
++    );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+-    assert!(out.stdout.contains("sudo apk add vim"), "got: {}", out.stdout);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
++    assert!(
++        out.stdout.contains("sudo apk add vim"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:552:
+ fn remove_dry_run_on_void_and_gentoo_delegate_natively() {
+     let (_os_void, void_release) = fixture_os_release("ID=void\n");
+     let void_release = void_release.to_string_lossy().into_owned();
+-    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &void_release)]);
++    let out = run_archon(
++        &["remove", "vim", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &void_release)],
++    );
+     assert!(out.status.success(), "stderr: {}", out.stderr);
+-    assert!(out.stdout.contains("sudo xbps-remove -R vim"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("sudo xbps-remove -R vim"),
++        "got: {}",
++        out.stdout
++    );
+ 
+     let (_os_gentoo, gentoo_release) = fixture_os_release("ID=gentoo\n");
+     let gentoo_release = gentoo_release.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:561:
+-    let out = run_archon(&["remove", "vim", "--dry-run"], &[("ARCHON_OS_RELEASE", &gentoo_release)]);
++    let out = run_archon(
++        &["remove", "vim", "--dry-run"],
++        &[("ARCHON_OS_RELEASE", &gentoo_release)],
++    );
+     assert!(out.status.success(), "stderr: {}", out.stderr);
+-    assert!(out.stdout.contains("sudo emerge --ask --depclean vim"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("sudo emerge --ask --depclean vim"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:573:
+         &[("ARCHON_OS_RELEASE", &os_release)],
+     );
+ 
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
+     assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
++    assert!(
+         out.stdout.contains("only Arch/AUR has today"),
+         "expected a note that --report isn't available here, got: {}",
+         out.stdout
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:581:
+     );
+-    assert!(out.stdout.contains("apt install firefox"), "got: {}", out.stdout);
++    assert!(
++        out.stdout.contains("apt install firefox"),
++        "got: {}",
++        out.stdout
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:592:
+         ],
+     );
+     assert!(!out.status.success());
+-    assert!(out.stderr.contains("failed to load official repo databases"));
++    assert!(
++        out.stderr
++            .contains("failed to load official repo databases")
++    );
+ }
+ 
+ #[test]
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:599:
+ fn report_flag_without_root_fails_before_any_prompt() {
+-    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg { name: "leaf", version: "1.0-1", depends: &[] }]);
++    let (_dir, sync_dir) = fixture_sync_dir(&[FixturePkg {
++        name: "leaf",
++        version: "1.0-1",
++        depends: &[],
++    }]);
+     let sync_dir = sync_dir.to_string_lossy().into_owned();
+     let (_cache, cache_dir) = empty_cache_dir();
+     let cache_dir = cache_dir.to_string_lossy().into_owned();
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:616:
+     // or touch pacman, matching the "no privileged operation without a
+     // clear confirmation step" contract from the README/design notes.
+     assert!(!out.status.success());
+-    assert!(out.stderr.contains("root") || out.stderr.contains("sudo"), "got: {}", out.stderr);
++    assert!(
++        out.stderr.contains("root") || out.stderr.contains("sudo"),
++        "got: {}",
++        out.stderr
++    );
+     assert!(!out.stdout.contains("sudo pacman"));
+ }
+ 
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:646:
+ /// system dependency unit tests elsewhere already document as required.
+ #[test]
+ fn build_command_succeeds_on_benign_demo_package() {
+-    if std::process::Command::new("bwrap").arg("--version").output().is_err() {
++    if std::process::Command::new("bwrap")
++        .arg("--version")
++        .output()
++        .is_err()
++    {
+         eprintln!("skipping: bwrap not available");
+         return;
+     }
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:653:
+-    if std::process::Command::new("makepkg").arg("--version").output().is_err() {
++    if std::process::Command::new("makepkg")
++        .arg("--version")
++        .output()
++        .is_err()
++    {
+         eprintln!("skipping: makepkg not available (required for sandbox test)");
+         return;
+     }
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:661:
+     copy_dir(std::path::Path::new(demo_src), &dest);
+ 
+     let out = run_archon(&["build", &dest.to_string_lossy()], &[]);
+-    assert!(out.status.success(), "stdout: {}\nstderr: {}", out.stdout, out.stderr);
++    assert!(
++        out.status.success(),
++        "stdout: {}\nstderr: {}",
++        out.stdout,
++        out.stderr
++    );
+     assert!(out.stdout.contains(".pkg.tar"));
+ 
+     let has_pkg_file = std::fs::read_dir(&dest)
+Diff in /home/ravi/archon/crates/archon/tests/cli.rs:668:
+         .unwrap()
+         .filter_map(|e| e.ok())
+         .any(|e| e.file_name().to_string_lossy().contains(".pkg.tar"));
+-    assert!(has_pkg_file, "expected a .pkg.tar* file in {}", dest.display());
++    assert!(
++        has_pkg_file,
++        "expected a .pkg.tar* file in {}",
++        dest.display()
++    );
+ }
+ 
+ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
+Diff in /home/ravi/archon/crates/archon/tests/common/mod.rs:23:
+ fn arch_os_release_path() -> &'static Path {
+     static PATH: OnceLock<PathBuf> = OnceLock::new();
+     PATH.get_or_init(|| {
+-        let path = std::env::temp_dir().join(format!("archon-test-os-release-{}", std::process::id()));
++        let path =
++            std::env::temp_dir().join(format!("archon-test-os-release-{}", std::process::id()));
+         std::fs::write(&path, "ID=arch\n").expect("write fixture os-release");
+         path
+     })
+Diff in /home/ravi/archon/crates/archon/tests/common/mod.rs:61:
+         header.set_mode(0o644);
+         header.set_cksum();
+         builder
+-            .append_data(&mut header, format!("{}-{}/desc", pkg.name, pkg.version), desc.as_bytes())
++            .append_data(
++                &mut header,
++                format!("{}-{}/desc", pkg.name, pkg.version),
++                desc.as_bytes(),
++            )
+             .expect("append fixture package");
+     }
+     let bytes = builder.into_inner().expect("finish tar");
+Diff in /home/ravi/archon/crates/archon/tests/common/mod.rs:131:
+ 
+ pub fn run_archon_interactive(args: &[&str], envs: &[(&str, &str)], input: &str) -> Output {
+     let mut cmd = Command::new(archon_bin());
+-    cmd.args(args).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
++    cmd.args(args)
++        .stdin(std::process::Stdio::piped())
++        .stdout(std::process::Stdio::piped())
++        .stderr(std::process::Stdio::piped());
+     cmd.env("ARCHON_OS_RELEASE", arch_os_release_path());
+     cmd.env("ARCHON_FORCE_INTERACTIVE", "1");
+     cmd.env("ARCHON_APT_LISTS_DIR", "/tmp/archon-empty-apt-lists");
+Diff in /home/ravi/archon/crates/archon/tests/common/mod.rs:142:
+     let mut child = cmd.spawn().expect("failed to spawn archon");
+     if let Some(mut stdin) = child.stdin.take() {
+         use std::io::Write;
+-        stdin.write_all(input.as_bytes()).expect("failed to write to stdin");
++        stdin
++            .write_all(input.as_bytes())
++            .expect("failed to write to stdin");
+     }
+     let output = child.wait_with_output().expect("failed to wait for archon");
+     Output {
+Diff in /home/ravi/archon/crates/archon/tests/common/mod.rs:174:
+         std::fs::create_dir_all(&pkg_dir).expect("create fixture pkg dir");
+         std::fs::write(
+             pkg_dir.join("desc"),
+-            format!("%NAME%\n{}\n\n%VERSION%\n{}\n\n%BASE%\n{}\n", pkg.name, pkg.version, pkg.name),
++            format!(
++                "%NAME%\n{}\n\n%VERSION%\n{}\n\n%BASE%\n{}\n",
++                pkg.name, pkg.version, pkg.name
++            ),
+         )
+         .expect("write fixture desc");
+     }
+Diff in /home/ravi/archon/crates/archon-aur/src/client.rs:58:
+         };
+ 
+         for chunk in misses.chunks(INFO_CHUNK) {
+-            let params: Vec<(&str, &str)> =
+-                chunk.iter().map(|n| ("arg[]", n.as_str())).collect();
++            let params: Vec<(&str, &str)> = chunk.iter().map(|n| ("arg[]", n.as_str())).collect();
+             let resp: RpcResponse = self
+                 .http
+                 .get(format!("{}/rpc/v5/info", self.base_url))
+Diff in /home/ravi/archon/crates/archon-aur/src/client.rs:179:
+     use super::*;
+     use std::io::{BufRead, BufReader, Write};
+     use std::net::TcpListener;
+-    use std::sync::atomic::{AtomicUsize, Ordering};
+     use std::sync::Arc;
++    use std::sync::atomic::{AtomicUsize, Ordering};
+ 
+     /// Minimal canned-response HTTP server: routes are (path-substring,
+     /// body) pairs; each accepted connection gets the first matching route.
+Diff in /home/ravi/archon/crates/archon-aur/src/client.rs:258:
+         assert!(client.info(&["nope".into()]).unwrap().is_empty());
+         let before = hits.load(Ordering::SeqCst);
+         assert!(client.info(&["nope".into()]).unwrap().is_empty());
+-        assert_eq!(hits.load(Ordering::SeqCst), before, "negative result not cached");
++        assert_eq!(
++            hits.load(Ordering::SeqCst),
++            before,
++            "negative result not cached"
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:47:
+ }
+ 
+ fn argv(parts: &[&str], names: &[String]) -> Vec<String> {
+-    parts.iter().map(|s| s.to_string()).chain(names.iter().cloned()).collect()
++    parts
++        .iter()
++        .map(|s| s.to_string())
++        .chain(names.iter().cloned())
++        .collect()
+ }
+ 
+ #[derive(Debug, Clone, Copy)]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:58:
+         "pacman"
+     }
+     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+-        let base: &[&str] = if assume_yes { &["pacman", "-S", "--needed", "--noconfirm"] } else { &["pacman", "-S", "--needed"] };
++        let base: &[&str] = if assume_yes {
++            &["pacman", "-S", "--needed", "--noconfirm"]
++        } else {
++            &["pacman", "-S", "--needed"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:65:
+-        let base: &[&str] = if assume_yes { &["pacman", "-Rs", "--noconfirm"] } else { &["pacman", "-Rs"] };
++        let base: &[&str] = if assume_yes {
++            &["pacman", "-Rs", "--noconfirm"]
++        } else {
++            &["pacman", "-Rs"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:81:
+         "apt"
+     }
+     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+-        let base: &[&str] = if assume_yes { &["apt", "install", "-y"] } else { &["apt", "install"] };
++        let base: &[&str] = if assume_yes {
++            &["apt", "install", "-y"]
++        } else {
++            &["apt", "install"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:88:
+-        let base: &[&str] = if assume_yes { &["apt", "remove", "-y"] } else { &["apt", "remove"] };
++        let base: &[&str] = if assume_yes {
++            &["apt", "remove", "-y"]
++        } else {
++            &["apt", "remove"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:92:
+-        vec!["apt-cache".to_string(), "search".to_string(), term.to_string()]
++        vec![
++            "apt-cache".to_string(),
++            "search".to_string(),
++            term.to_string(),
++        ]
+     }
+     fn is_installed_argv(&self, name: &str) -> Vec<String> {
+         vec!["dpkg".to_string(), "-s".to_string(), name.to_string()]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:104:
+         "dnf"
+     }
+     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+-        let base: &[&str] = if assume_yes { &["dnf", "install", "-y"] } else { &["dnf", "install"] };
++        let base: &[&str] = if assume_yes {
++            &["dnf", "install", "-y"]
++        } else {
++            &["dnf", "install"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:111:
+-        let base: &[&str] = if assume_yes { &["dnf", "remove", "-y"] } else { &["dnf", "remove"] };
++        let base: &[&str] = if assume_yes {
++            &["dnf", "remove", "-y"]
++        } else {
++            &["dnf", "remove"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:127:
+         "zypper"
+     }
+     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+-        let base: &[&str] = if assume_yes { &["zypper", "--non-interactive", "install"] } else { &["zypper", "install"] };
++        let base: &[&str] = if assume_yes {
++            &["zypper", "--non-interactive", "install"]
++        } else {
++            &["zypper", "install"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:134:
+-        let base: &[&str] = if assume_yes { &["zypper", "--non-interactive", "remove"] } else { &["zypper", "remove"] };
++        let base: &[&str] = if assume_yes {
++            &["zypper", "--non-interactive", "remove"]
++        } else {
++            &["zypper", "remove"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:162:
+         vec!["apk".to_string(), "search".to_string(), term.to_string()]
+     }
+     fn is_installed_argv(&self, name: &str) -> Vec<String> {
+-        vec!["apk".to_string(), "info".to_string(), "-e".to_string(), name.to_string()]
++        vec![
++            "apk".to_string(),
++            "info".to_string(),
++            "-e".to_string(),
++            name.to_string(),
++        ]
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:212:
+         "xbps"
+     }
+     fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+-        let base: &[&str] = if assume_yes { &["xbps-install", "-Sy"] } else { &["xbps-install", "-S"] };
++        let base: &[&str] = if assume_yes {
++            &["xbps-install", "-Sy"]
++        } else {
++            &["xbps-install", "-S"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:219:
+         // -R removes now-orphaned dependencies too, matching what the
+         // pacman backend's -Rs does on Arch.
+-        let base: &[&str] = if assume_yes { &["xbps-remove", "-Ry"] } else { &["xbps-remove", "-R"] };
++        let base: &[&str] = if assume_yes {
++            &["xbps-remove", "-Ry"]
++        } else {
++            &["xbps-remove", "-R"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:225:
+-        vec!["xbps-query".to_string(), "-Rs".to_string(), term.to_string()]
++        vec![
++            "xbps-query".to_string(),
++            "-Rs".to_string(),
++            term.to_string(),
++        ]
+     }
+     fn is_installed_argv(&self, name: &str) -> Vec<String> {
+         vec!["xbps-query".to_string(), name.to_string()]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:241:
+         // So archon's "no --yes given" maps to --ask (you get to review the
+         // transaction) and --yes maps to plain emerge — inverted flag,
+         // same user-visible semantics as every other backend.
+-        let base: &[&str] = if assume_yes { &["emerge"] } else { &["emerge", "--ask"] };
++        let base: &[&str] = if assume_yes {
++            &["emerge"]
++        } else {
++            &["emerge", "--ask"]
++        };
+         argv(base, names)
+     }
+     fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:248:
+-        let base: &[&str] = if assume_yes { &["emerge", "--depclean"] } else { &["emerge", "--ask", "--depclean"] };
++        let base: &[&str] = if assume_yes {
++            &["emerge", "--depclean"]
++        } else {
++            &["emerge", "--ask", "--depclean"]
++        };
+         argv(base, names)
+     }
+     fn search_argv(&self, term: &str) -> Vec<String> {
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:252:
+-        vec!["emerge".to_string(), "--search".to_string(), term.to_string()]
++        vec![
++            "emerge".to_string(),
++            "--search".to_string(),
++            term.to_string(),
++        ]
+     }
+     fn is_installed_argv(&self, name: &str) -> Vec<String> {
+         // qlist ships in portage-utils, present on effectively every
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:264:
+ 
+     #[test]
+     fn pacman_install_argv() {
+-        assert_eq!(PacmanBackend.install_argv(&["firefox".into()], false), ["pacman", "-S", "--needed", "firefox"]);
++        assert_eq!(
++            PacmanBackend.install_argv(&["firefox".into()], false),
++            ["pacman", "-S", "--needed", "firefox"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:285:
+ 
+     #[test]
+     fn apt_install_argv_assume_yes() {
+-        assert_eq!(AptBackend.install_argv(&["firefox".into()], true), ["apt", "install", "-y", "firefox"]);
++        assert_eq!(
++            AptBackend.install_argv(&["firefox".into()], true),
++            ["apt", "install", "-y", "firefox"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:292:
+     fn dnf_remove_argv() {
+-        assert_eq!(DnfBackend.remove_argv(&["firefox".into()], true), ["dnf", "remove", "-y", "firefox"]);
++        assert_eq!(
++            DnfBackend.remove_argv(&["firefox".into()], true),
++            ["dnf", "remove", "-y", "firefox"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:297:
+     fn dnf_remove_argv_without_assume_yes() {
+-        assert_eq!(DnfBackend.remove_argv(&["firefox".into()], false), ["dnf", "remove", "firefox"]);
++        assert_eq!(
++            DnfBackend.remove_argv(&["firefox".into()], false),
++            ["dnf", "remove", "firefox"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:308:
+     #[test]
+     fn search_argv_per_backend() {
+         assert_eq!(PacmanBackend.search_argv("vim"), ["pacman", "-Ss", "vim"]);
+-        assert_eq!(AptBackend.search_argv("vim"), ["apt-cache", "search", "vim"]);
++        assert_eq!(
++            AptBackend.search_argv("vim"),
++            ["apt-cache", "search", "vim"]
++        );
+         assert_eq!(DnfBackend.search_argv("vim"), ["dnf", "search", "vim"]);
+-        assert_eq!(ZypperBackend.search_argv("vim"), ["zypper", "search", "vim"]);
++        assert_eq!(
++            ZypperBackend.search_argv("vim"),
++            ["zypper", "search", "vim"]
++        );
+         assert_eq!(ApkBackend.search_argv("vim"), ["apk", "search", "vim"]);
+         assert_eq!(NixBackend.search_argv("vim"), ["nix-env", "-qaP", "vim"]);
+         assert_eq!(XbpsBackend.search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:317:
+-        assert_eq!(EmergeBackend.search_argv("vim"), ["emerge", "--search", "vim"]);
++        assert_eq!(
++            EmergeBackend.search_argv("vim"),
++            ["emerge", "--search", "vim"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:323:
+             NixBackend.install_argv(&["firefox".into(), "vim".into()], false),
+             ["nix-env", "-iA", "nixos.firefox", "nixos.vim"]
+         );
+-        assert_eq!(NixBackend.remove_argv(&["firefox".into()], false), ["nix-env", "-e", "firefox"]);
++        assert_eq!(
++            NixBackend.remove_argv(&["firefox".into()], false),
++            ["nix-env", "-e", "firefox"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:348:
+             ZypperBackend.install_argv(&["vim".into()], true),
+             ["zypper", "--non-interactive", "install", "vim"]
+         );
+-        assert_eq!(ZypperBackend.install_argv(&["vim".into()], false), ["zypper", "install", "vim"]);
++        assert_eq!(
++            ZypperBackend.install_argv(&["vim".into()], false),
++            ["zypper", "install", "vim"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:355:
+     fn apk_is_always_non_interactive() {
+         // Same argv either way: apk has no prompt for --yes to skip.
+-        assert_eq!(ApkBackend.install_argv(&["vim".into()], false), ["apk", "add", "vim"]);
+-        assert_eq!(ApkBackend.install_argv(&["vim".into()], true), ["apk", "add", "vim"]);
+-        assert_eq!(ApkBackend.remove_argv(&["vim".into()], true), ["apk", "del", "vim"]);
++        assert_eq!(
++            ApkBackend.install_argv(&["vim".into()], false),
++            ["apk", "add", "vim"]
++        );
++        assert_eq!(
++            ApkBackend.install_argv(&["vim".into()], true),
++            ["apk", "add", "vim"]
++        );
++        assert_eq!(
++            ApkBackend.remove_argv(&["vim".into()], true),
++            ["apk", "del", "vim"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:363:
+     fn xbps_argv() {
+-        assert_eq!(XbpsBackend.install_argv(&["vim".into()], false), ["xbps-install", "-S", "vim"]);
+-        assert_eq!(XbpsBackend.install_argv(&["vim".into()], true), ["xbps-install", "-Sy", "vim"]);
+-        assert_eq!(XbpsBackend.remove_argv(&["vim".into()], true), ["xbps-remove", "-Ry", "vim"]);
++        assert_eq!(
++            XbpsBackend.install_argv(&["vim".into()], false),
++            ["xbps-install", "-S", "vim"]
++        );
++        assert_eq!(
++            XbpsBackend.install_argv(&["vim".into()], true),
++            ["xbps-install", "-Sy", "vim"]
++        );
++        assert_eq!(
++            XbpsBackend.remove_argv(&["vim".into()], true),
++            ["xbps-remove", "-Ry", "vim"]
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/backend.rs:370:
+     fn emerge_ask_flag_is_inverted_but_semantics_match() {
+         // No --yes: user still gets a confirmation (emerge's own --ask).
+-        assert_eq!(EmergeBackend.install_argv(&["vim".into()], false), ["emerge", "--ask", "vim"]);
++        assert_eq!(
++            EmergeBackend.install_argv(&["vim".into()], false),
++            ["emerge", "--ask", "vim"]
++        );
+         // --yes: no prompt anywhere, same as -y elsewhere.
+-        assert_eq!(EmergeBackend.install_argv(&["vim".into()], true), ["emerge", "vim"]);
++        assert_eq!(
++            EmergeBackend.install_argv(&["vim".into()], true),
++            ["emerge", "vim"]
++        );
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:14:
+ mod backend;
+ 
+ pub use backend::{
+-    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, NixBackend, PacmanBackend, XbpsBackend,
+-    ZypperBackend,
++    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, NixBackend, PacmanBackend,
++    XbpsBackend, ZypperBackend,
+ };
+ 
+ use std::path::{Path, PathBuf};
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:88:
+                 return distro;
+             }
+         }
+-        Distro::Unknown(if id.is_empty() { "unknown".to_string() } else { id })
++        Distro::Unknown(if id.is_empty() {
++            "unknown".to_string()
++        } else {
++            id
++        })
+     }
+ 
+     pub fn is_arch(&self) -> bool {
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:149:
+ 
+     #[test]
+     fn recognized_id_precedes_id_like() {
+-        assert_eq!(Distro::from_os_release("ID=ubuntu\nID_LIKE=arch\n"), Distro::Debian);
++        assert_eq!(
++            Distro::from_os_release("ID=ubuntu\nID_LIKE=arch\n"),
++            Distro::Debian
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:156:
+     fn id_like_uses_declared_order() {
+-        assert_eq!(Distro::from_os_release("ID=custom\nID_LIKE=\"debian arch\"\n"), Distro::Debian);
++        assert_eq!(
++            Distro::from_os_release("ID=custom\nID_LIKE=\"debian arch\"\n"),
++            Distro::Debian
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:161:
+     fn detects_arch_by_id() {
+-        assert_eq!(Distro::from_os_release("ID=arch\nNAME=\"Arch Linux\"\n"), Distro::Arch);
++        assert_eq!(
++            Distro::from_os_release("ID=arch\nNAME=\"Arch Linux\"\n"),
++            Distro::Arch
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:166:
+     fn detects_ubuntu_by_id() {
+-        assert_eq!(Distro::from_os_release("ID=ubuntu\nID_LIKE=debian\n"), Distro::Debian);
++        assert_eq!(
++            Distro::from_os_release("ID=ubuntu\nID_LIKE=debian\n"),
++            Distro::Debian
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:171:
+     fn detects_debian_derivative_by_id_like() {
+         // Pop!_OS: its own ID, but ID_LIKE names its real upstream family.
+-        assert_eq!(Distro::from_os_release("ID=pop\nID_LIKE=\"ubuntu debian\"\n"), Distro::Debian);
++        assert_eq!(
++            Distro::from_os_release("ID=pop\nID_LIKE=\"ubuntu debian\"\n"),
++            Distro::Debian
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:177:
+     fn detects_arch_derivative_by_id_like() {
+-        assert_eq!(Distro::from_os_release("ID=manjaro\nID_LIKE=arch\n"), Distro::Arch);
++        assert_eq!(
++            Distro::from_os_release("ID=manjaro\nID_LIKE=arch\n"),
++            Distro::Arch
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:182:
+     fn detects_fedora_family() {
+         assert_eq!(Distro::from_os_release("ID=fedora\n"), Distro::Fedora);
+-        assert_eq!(Distro::from_os_release("ID=rocky\nID_LIKE=\"rhel centos fedora\"\n"), Distro::Fedora);
++        assert_eq!(
++            Distro::from_os_release("ID=rocky\nID_LIKE=\"rhel centos fedora\"\n"),
++            Distro::Fedora
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-distro/src/lib.rs:198:
+             Distro::from_os_release("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n"),
+             Distro::Suse
+         );
+-        assert_eq!(Distro::from_os_release("ID=sles\nID_LIKE=suse\n"), Distro::Suse);
++        assert_eq!(
++            Distro::from_os_release("ID=sles\nID_LIKE=suse\n"),
++            Distro::Suse
++        );
+         // Older/hypothetical bare compound ID with no ID_LIKE at all.
+         assert_eq!(Distro::from_os_release("ID=opensuse-leap\n"), Distro::Suse);
+     }
+Diff in /home/ravi/archon/crates/archon-monitor/src/loader.rs:9:
+ //! there are no `#[cfg(test)]` cases below — correctness here is verified
+ //! by actually loading and attaching against a running kernel.
+ 
++use aya::Ebpf;
+ use aya::maps::{Array as AyaArray, MapData, RingBuf as AyaRingBuf};
+ use aya::programs::TracePoint;
+-use aya::Ebpf;
+ use aya_log::EbpfLogger;
+ 
+ use archon_monitor_common::SyscallEvent;
+Diff in /home/ravi/archon/crates/archon-monitor/src/loader.rs:69:
+                 .program_mut(prog_name)
+                 .ok_or(MonitorError::ProgramNotFound(prog_name))?
+                 .try_into()
+-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
++                .map_err(|source| MonitorError::Program {
++                    name: prog_name,
++                    source,
++                })?;
++            program.load().map_err(|source| MonitorError::Program {
++                name: prog_name,
++                source,
++            })?;
+             program
+-                .load()
+-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
+-            program
+                 .attach(category, name)
+-                .map_err(|source| MonitorError::Program { name: prog_name, source })?;
++                .map_err(|source| MonitorError::Program {
++                    name: prog_name,
++                    source,
++                })?;
+         }
+         Ok(Self { ebpf, logger })
+     }
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:17:
+ /// package with unusual (but legitimate) build-time tooling.
+ pub const DEFAULT_ALLOWED_TOOLS: &[&str] = &[
+     // compilers / linkers
+-    "gcc", "cc", "g++", "c++", "clang", "clang++", "ld", "ld.bfd", "ld.gold", "ld.lld", "as",
+-    "ar", "nm", "objcopy", "objdump", "strip", "ranlib", "rustc", "cargo", "go",
++    "gcc",
++    "cc",
++    "g++",
++    "c++",
++    "clang",
++    "clang++",
++    "ld",
++    "ld.bfd",
++    "ld.gold",
++    "ld.lld",
++    "as",
++    "ar",
++    "nm",
++    "objcopy",
++    "objdump",
++    "strip",
++    "ranlib",
++    "rustc",
++    "cargo",
++    "go",
+     // build-system drivers
+-    "make", "cmake", "ninja", "meson", "autoconf", "automake", "autoreconf", "libtool", "m4",
+-    "bison", "flex", "pkg-config", "pkgconf",
++    "make",
++    "cmake",
++    "ninja",
++    "meson",
++    "autoconf",
++    "automake",
++    "autoreconf",
++    "libtool",
++    "m4",
++    "bison",
++    "flex",
++    "pkg-config",
++    "pkgconf",
+     // archives / compression
+-    "tar", "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zstd", "unzstd", "bsdtar",
+-    "install", "patch",
++    "tar",
++    "gzip",
++    "gunzip",
++    "bzip2",
++    "bunzip2",
++    "xz",
++    "unxz",
++    "zstd",
++    "unzstd",
++    "bsdtar",
++    "install",
++    "patch",
+     // scripting / text
+-    "sh", "bash", "python", "python3", "perl", "sed", "gawk", "awk", "grep", "find", "xargs",
++    "sh",
++    "bash",
++    "python",
++    "python3",
++    "perl",
++    "sed",
++    "gawk",
++    "awk",
++    "grep",
++    "find",
++    "xargs",
+     // fs / coreutils commonly shelled out to by build scripts
+-    "cp", "mv", "rm", "mkdir", "ln", "touch", "cat", "echo", "printf", "test", "true", "false",
+-    "dirname", "basename", "readlink", "realpath", "id", "uname", "nproc", "env", "which",
+-    "date", "sort", "wc", "chmod", "chown", "getopt", "cut",
++    "cp",
++    "mv",
++    "rm",
++    "mkdir",
++    "ln",
++    "touch",
++    "cat",
++    "echo",
++    "printf",
++    "test",
++    "true",
++    "false",
++    "dirname",
++    "basename",
++    "readlink",
++    "realpath",
++    "id",
++    "uname",
++    "nproc",
++    "env",
++    "which",
++    "date",
++    "sort",
++    "wc",
++    "chmod",
++    "chown",
++    "getopt",
++    "cut",
+     // packaging / checksums (makepkg itself and its helpers)
+-    "makepkg", "bwrap", "fakeroot", "faked", "gpg", "sha256sum", "sha512sum", "b2sum", "md5sum",
+-    "gdb-add-index", "install-info", "gettext", "tput",
++    "makepkg",
++    "bwrap",
++    "fakeroot",
++    "faked",
++    "gpg",
++    "sha256sum",
++    "sha512sum",
++    "b2sum",
++    "md5sum",
++    "gdb-add-index",
++    "install-info",
++    "gettext",
++    "tput",
+     // fetch tools makepkg itself uses to download declared sources
+-    "curl", "wget", "git",
++    "curl",
++    "wget",
++    "git",
+ ];
+ 
+ /// Bare filenames archon's own sandbox setup (bwrap's unprivileged user
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:90:
+     pub fn new(build_dir: impl Into<PathBuf>, allowed_ips: HashSet<Ipv4Addr>) -> Self {
+         Self {
+             build_dir: build_dir.into(),
+-            allowed_tools: DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
++            allowed_tools: DEFAULT_ALLOWED_TOOLS
++                .iter()
++                .map(|s| s.to_string())
++                .collect(),
+             allowed_ips,
+         }
+     }
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:124:
+         if self.allowed_tools.contains(&basename) {
+             return None;
+         }
+-        Some(FlagReason::UnexpectedExec { path: path.to_string() })
++        Some(FlagReason::UnexpectedExec {
++            path: path.to_string(),
++        })
+     }
+ 
+     fn evaluate_open(&self, event: &SyscallEvent) -> Option<FlagReason> {
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:146:
+         if NAMESPACE_SETUP_FILES.contains(&path) {
+             return None;
+         }
+-        Some(FlagReason::WriteOutsideBuildDir { path: path.to_string() })
++        Some(FlagReason::WriteOutsideBuildDir {
++            path: path.to_string(),
++        })
+     }
+ 
+     fn evaluate_connect(&self, event: &SyscallEvent) -> Option<FlagReason> {
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:157:
+         if self.allowed_ips.contains(&addr) {
+             return None;
+         }
+-        Some(FlagReason::UndeclaredConnection { addr, port: event.port })
++        Some(FlagReason::UndeclaredConnection {
++            addr,
++            port: event.port,
++        })
+     }
+ 
+     fn is_inside_build_dir(&self, path: &str) -> bool {
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:209:
+         let got = policy().evaluate(&exec_event("/tmp/payload"));
+         assert_eq!(
+             got,
+-            Some(FlagReason::UnexpectedExec { path: "/tmp/payload".into() })
++            Some(FlagReason::UnexpectedExec {
++                path: "/tmp/payload".into()
++            })
+         );
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:230:
+         let ev = open_event("/etc/passwd", open_flags::O_WRONLY);
+         assert_eq!(
+             policy().evaluate(&ev),
+-            Some(FlagReason::WriteOutsideBuildDir { path: "/etc/passwd".into() })
++            Some(FlagReason::WriteOutsideBuildDir {
++                path: "/etc/passwd".into()
++            })
+         );
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/policy.rs:265:
+             "bwrap", "date", "gettext", "tput", "sort", "wc", "chmod", "chown", "getopt", "cut",
+         ] {
+             let ev = exec_event(&format!("/usr/bin/{tool}"));
+-            assert_eq!(policy().evaluate(&ev), None, "{tool} should be allow-listed");
++            assert_eq!(
++                policy().evaluate(&ev),
++                None,
++                "{tool} should be allow-listed"
++            );
+         }
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/report.rs:72:
+             total_events: 10,
+             flagged: vec![FlaggedEvent {
+                 event,
+-                reason: FlagReason::UnexpectedExec { path: "/tmp/payload".into() },
++                reason: FlagReason::UnexpectedExec {
++                    path: "/tmp/payload".into(),
++                },
+             }],
+         };
+         assert!(!report.is_clean());
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:4:
+ use std::path::Path;
+ 
+ use archon_monitor_common::{EventKind, SyscallEvent};
+-use rusqlite::{params, Connection};
++use rusqlite::{Connection, params};
+ 
+ use crate::policy::FlagReason;
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:120:
+             let flag_reason: Option<String> = row.get(8)?;
+             Ok(StoredEvent { event, flag_reason })
+         })?;
+-        rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::from)
++        rows.collect::<Result<Vec<_>, _>>()
++            .map_err(StoreError::from)
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:143:
+         let store = EventStore::open_in_memory().unwrap();
+         let build_id = store.start_build("tty-clock", 1_700_000_000).unwrap();
+ 
+-        store.record_event(build_id, &sample_event("/usr/include/stdio.h"), None).unwrap();
++        store
++            .record_event(build_id, &sample_event("/usr/include/stdio.h"), None)
++            .unwrap();
+         let flagged = sample_event("/etc/passwd");
+         store
+             .record_event(
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:150:
+                 build_id,
+                 &flagged,
+-                Some(&FlagReason::WriteOutsideBuildDir { path: "/etc/passwd".into() }),
++                Some(&FlagReason::WriteOutsideBuildDir {
++                    path: "/etc/passwd".into(),
++                }),
+             )
+             .unwrap();
+ 
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:158:
+         assert_eq!(events[0].event.path_str(), "/usr/include/stdio.h");
+         assert!(events[0].flag_reason.is_none());
+         assert_eq!(events[1].event.path_str(), "/etc/passwd");
+-        assert!(events[1].flag_reason.as_deref().unwrap().contains("/etc/passwd"));
++        assert!(
++            events[1]
++                .flag_reason
++                .as_deref()
++                .unwrap()
++                .contains("/etc/passwd")
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-monitor/src/store.rs:166:
+         let store = EventStore::open_in_memory().unwrap();
+         let build_a = store.start_build("pkg-a", 1).unwrap();
+         let build_b = store.start_build("pkg-b", 2).unwrap();
+-        store.record_event(build_a, &sample_event("/a"), None).unwrap();
+-        store.record_event(build_b, &sample_event("/b"), None).unwrap();
++        store
++            .record_event(build_a, &sample_event("/a"), None)
++            .unwrap();
++        store
++            .record_event(build_b, &sample_event("/b"), None)
++            .unwrap();
+ 
+         assert_eq!(store.events_for_build(build_a).unwrap().len(), 1);
+         assert_eq!(store.events_for_build(build_b).unwrap().len(), 1);
+Diff in /home/ravi/archon/crates/archon-repo/src/cache.rs:44:
+     /// child of `/var/lib/pacman/local`, which always bumps its mtime.
+     pub fn of_dir(path: &Path) -> std::io::Result<Self> {
+         let meta = std::fs::metadata(path)?;
+-        Ok(Self(vec![(path.display().to_string(), mtime_secs(&meta), 0)]))
++        Ok(Self(vec![(
++            path.display().to_string(),
++            mtime_secs(&meta),
++            0,
++        )]))
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-repo/src/cache.rs:64:
+ 
+ /// `None` on any miss — wrong/missing file, corrupt content, or a
+ /// fingerprint mismatch. Never an error; see the module doc comment.
+-pub fn try_read<T: serde::de::DeserializeOwned>(cache_path: &Path, current: &Fingerprint) -> Option<T> {
++pub fn try_read<T: serde::de::DeserializeOwned>(
++    cache_path: &Path,
++    current: &Fingerprint,
++) -> Option<T> {
+     let bytes = std::fs::read(cache_path).ok()?;
+     let cached: CacheFile<T> = serde_json::from_slice(&bytes).ok()?;
+     (&cached.fingerprint == current).then_some(cached.data)
+Diff in /home/ravi/archon/crates/archon-repo/src/cache.rs:76:
+ /// filesystem, disk full, ...) is silently swallowed — a failed cache
+ /// write must never block the caller, which already has its real answer.
+ pub fn write<T: Serialize>(cache_path: &Path, fingerprint: Fingerprint, data: &T) {
+-    let Some(parent) = cache_path.parent() else { return };
++    let Some(parent) = cache_path.parent() else {
++        return;
++    };
+     if std::fs::create_dir_all(parent).is_err() {
+         return;
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/cache.rs:83:
+-    let Ok(bytes) = serde_json::to_vec(&CacheFile { fingerprint, data }) else { return };
++    let Ok(bytes) = serde_json::to_vec(&CacheFile { fingerprint, data }) else {
++        return;
++    };
+     let tmp = cache_path.with_extension("tmp");
+     if std::fs::write(&tmp, &bytes).is_ok() {
+         let _ = std::fs::rename(&tmp, cache_path);
+Diff in /home/ravi/archon/crates/archon-repo/src/cache.rs:105:
+     fn mismatched_fingerprint_is_a_miss() {
+         let dir = tempfile::tempdir().unwrap();
+         let cache_path = dir.path().join("cache.json");
+-        write(&cache_path, Fingerprint(vec![("a".into(), 1, 2)]), &vec![1, 2, 3]);
++        write(
++            &cache_path,
++            Fingerprint(vec![("a".into(), 1, 2)]),
++            &vec![1, 2, 3],
++        );
+         let got: Option<Vec<i32>> = try_read(&cache_path, &Fingerprint(vec![("a".into(), 9, 9)]));
+         assert_eq!(got, None);
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:2:
+ use std::io::{BufRead, BufReader};
+ use std::path::Path;
+ 
+-use archon_types::{Dependency, PackageMeta, PackageProvider, ProviderError, PackageSource, Version, ConstraintOp};
++use archon_types::{
++    ConstraintOp, Dependency, PackageMeta, PackageProvider, PackageSource, ProviderError, Version,
++};
+ 
+ pub struct AptLists {
+     pub packages: Vec<PackageMeta>,
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:63:
+                 let key = k.trim();
+                 let value = v.trim().to_string();
+ 
+-                let mut pkg: std::collections::HashMap<String, String> = current_pkg.unwrap_or_default();
++                let mut pkg: std::collections::HashMap<String, String> =
++                    current_pkg.unwrap_or_default();
+                 pkg.insert(key.to_string(), value);
+                 current_pkg = Some(pkg);
+             }
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:70:
+         }
+-        
++
+         if let Some(pkg) = current_pkg {
+             if let Ok(meta) = Self::build_meta(pkg) {
+                 packages.push(meta);
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:78:
+         Ok(packages)
+     }
+ 
+-    fn build_meta(mut raw: std::collections::HashMap<String, String>) -> Result<PackageMeta, &'static str> {
++    fn build_meta(
++        mut raw: std::collections::HashMap<String, String>,
++    ) -> Result<PackageMeta, &'static str> {
+         let name = raw.remove("Package").ok_or("Missing Package")?;
+         let version_str = raw.remove("Version").ok_or("Missing Version")?;
+         let version = Version::parse_dpkg(&version_str).map_err(|_| "Invalid Version")?;
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:110:
+             provides,
+         })
+     }
+-    
++
+     pub fn all_package_names(&self) -> Vec<(String, String)> {
+-        self.packages.iter().map(|p| (p.name.clone(), "apt".to_string())).collect()
++        self.packages
++            .iter()
++            .map(|p| (p.name.clone(), "apt".to_string()))
++            .collect()
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:156:
+     let mut out = Vec::new();
+     for group in raw.split(',') {
+         let mut parts = group.split('|').map(|s| s.trim()).filter(|s| !s.is_empty());
+-        
++
+         let preferred = match parts.next() {
+             Some(p) => p,
+             None => continue,
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:186:
+             // Let's map it to Archon's VersionConstraint
+             let mut op = None;
+             let mut ver_str = constraint_str;
+-            if let Some(v) = constraint_str.strip_prefix(">=") { op = Some(ConstraintOp::Ge); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix("<=") { op = Some(ConstraintOp::Le); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix("=") { op = Some(ConstraintOp::Eq); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix(">>") { op = Some(ConstraintOp::Gt); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix("<<") { op = Some(ConstraintOp::Lt); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix(">") { op = Some(ConstraintOp::Gt); ver_str = v.trim(); }
+-            else if let Some(v) = constraint_str.strip_prefix("<") { op = Some(ConstraintOp::Lt); ver_str = v.trim(); }
++            if let Some(v) = constraint_str.strip_prefix(">=") {
++                op = Some(ConstraintOp::Ge);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix("<=") {
++                op = Some(ConstraintOp::Le);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix("=") {
++                op = Some(ConstraintOp::Eq);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix(">>") {
++                op = Some(ConstraintOp::Gt);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix("<<") {
++                op = Some(ConstraintOp::Lt);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix(">") {
++                op = Some(ConstraintOp::Gt);
++                ver_str = v.trim();
++            } else if let Some(v) = constraint_str.strip_prefix("<") {
++                op = Some(ConstraintOp::Lt);
++                ver_str = v.trim();
++            }
+ 
+             if let (Some(op), Ok(ver)) = (op, Version::parse_dpkg(ver_str)) {
+                 return Some(Dependency {
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:199:
+                     name,
+-                    constraint: Some(archon_types::VersionConstraint {
+-                        op,
+-                        version: ver,
+-                    }),
++                    constraint: Some(archon_types::VersionConstraint { op, version: ver }),
+                     alternatives: Vec::new(),
+                 });
+             } else {
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:207:
+                 // Ignore invalid constraint, just depend on the name
+-                return Some(Dependency { name, constraint: None, alternatives: Vec::new() });
++                return Some(Dependency {
++                    name,
++                    constraint: None,
++                    alternatives: Vec::new(),
++                });
+             }
+         }
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:212:
+-    Some(Dependency { name: raw.to_string(), constraint: None, alternatives: Vec::new() })
++    Some(Dependency {
++        name: raw.to_string(),
++        constraint: None,
++        alternatives: Vec::new(),
++    })
+ }
+ 
+ #[cfg(test)]
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:223:
+         assert_eq!(deps.len(), 3);
+         assert_eq!(deps[0].name, "libc6");
+         assert_eq!(deps[0].constraint.as_ref().unwrap().op, ConstraintOp::Ge);
+-        assert_eq!(deps[0].constraint.as_ref().unwrap().version.to_string(), "2.31-13+deb11u5");
++        assert_eq!(
++            deps[0].constraint.as_ref().unwrap().version.to_string(),
++            "2.31-13+deb11u5"
++        );
+ 
+         assert_eq!(deps[1].name, "libcrypt1");
+         assert_eq!(deps[2].name, "libgcc-s1");
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:246:
+ ";
+         let pkgs = AptLists::parse_reader(stanza.as_bytes()).unwrap();
+         assert_eq!(pkgs.len(), 2);
+-        
++
+         let libc6 = &pkgs[0];
+         assert_eq!(libc6.name, "libc6");
+         assert_eq!(libc6.version.to_string(), "2.31-13+deb11u5");
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:266:
+ Version: 4.94.2-7
+ Provides: mail-transport-agent
+ ";
+-        let apt = AptLists { packages: AptLists::parse_reader(stanza.as_bytes()).unwrap() };
++        let apt = AptLists {
++            packages: AptLists::parse_reader(stanza.as_bytes()).unwrap(),
++        };
+         let providers = apt.find_providers("mail-transport-agent").unwrap();
+         assert_eq!(providers.len(), 2);
+-        let mut names = providers.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
++        let mut names = providers
++            .iter()
++            .map(|p| p.name.as_str())
++            .collect::<Vec<_>>();
+         names.sort();
+         assert_eq!(names, vec!["exim4", "postfix"]);
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/deb_index.rs:287:
+ ";
+         let pkgs = AptLists::parse_reader(stanza.as_bytes()).unwrap();
+         assert_eq!(pkgs.len(), 2);
+-        
++
+         let rc = &pkgs[0].version;
+         let final_v = &pkgs[1].version;
+-        
++
+         // 1.0~rc1 should be LESS than 1.0
+         assert_eq!(rc.vercmp(final_v), std::cmp::Ordering::Less);
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/desc.rs:84:
+             .get("DESC")
+             .and_then(|v| v.first())
+             .map(|s| (*s).to_owned()),
+-        source: PackageSource::Official { repo: repo.to_owned() },
++        source: PackageSource::Official {
++            repo: repo.to_owned(),
++        },
+         depends: deps("DEPENDS")?,
+         // Sync dbs don't carry makedepends for prebuilt packages.
+         make_depends: vec![],
+Diff in /home/ravi/archon/crates/archon-repo/src/desc.rs:131:
+         assert!(pkg.conflicts.is_empty());
+         assert_eq!(
+             pkg.source,
+-            PackageSource::Official { repo: "extra".into() }
++            PackageSource::Official {
++                repo: "extra".into()
++            }
+         );
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:10:
+ //! run on a live system.
+ 
+ mod cache;
++pub mod deb_index;
+ mod desc;
+ mod local_db;
+ mod sync_db;
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:16:
+-pub mod deb_index;
+ 
+ pub use desc::DescParseError;
+ pub use local_db::{LocalDb, LocalDbError};
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:52:
+     /// split out from [`OfficialRepos::load`] so [`OfficialRepos::load_cached`]
+     /// can fingerprint them (mtime + size) before deciding whether it even
+     /// needs to parse anything.
+-    fn db_paths(sync_dir: &Path, repo_order: &[&str]) -> Result<Vec<std::path::PathBuf>, SyncDbError> {
++    fn db_paths(
++        sync_dir: &Path,
++        repo_order: &[&str],
++    ) -> Result<Vec<std::path::PathBuf>, SyncDbError> {
+         let io_err = |source| SyncDbError::Io {
+             path: sync_dir.display().to_string(),
+             source,
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:92:
+     /// `pacman -Sy`. Any cache problem (missing, corrupt, stale) falls
+     /// back to a normal parse and a best-effort cache rewrite; caching is
+     /// purely a speed optimization; see the `cache` module doc comment.
+-    pub fn load_cached(sync_dir: &Path, repo_order: &[&str], cache_path: &Path) -> Result<Self, SyncDbError> {
++    pub fn load_cached(
++        sync_dir: &Path,
++        repo_order: &[&str],
++        cache_path: &Path,
++    ) -> Result<Self, SyncDbError> {
+         let paths = Self::db_paths(sync_dir, repo_order)?;
+         let Ok(fingerprint) = cache::Fingerprint::of_files(&paths) else {
+             return Self::load(sync_dir, repo_order);
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:107:
+             return Ok(Self { dbs });
+         }
+ 
+-        let dbs = paths.iter().map(|p| SyncDb::load(p)).collect::<Result<Vec<_>, _>>()?;
+-        let snapshot: Snapshot =
+-            dbs.iter().map(|db| (db.name.clone(), db.packages().cloned().collect())).collect();
++        let dbs = paths
++            .iter()
++            .map(|p| SyncDb::load(p))
++            .collect::<Result<Vec<_>, _>>()?;
++        let snapshot: Snapshot = dbs
++            .iter()
++            .map(|db| (db.name.clone(), db.packages().cloned().collect()))
++            .collect();
+         cache::write(cache_path, fingerprint, &snapshot);
+         Ok(Self { dbs })
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:197:
+             header.set_mode(0o644);
+             header.set_cksum();
+             builder
+-                .append_data(&mut header, format!("{name}-{version}/desc"), desc.as_bytes())
++                .append_data(
++                    &mut header,
++                    format!("{name}-{version}/desc"),
++                    desc.as_bytes(),
++                )
+                 .unwrap();
+         }
+         SyncDb::from_tar_bytes(repo, &builder.into_inner().unwrap()).unwrap()
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:233:
+ 
+     #[test]
+     fn search_matches_substring_case_insensitively() {
+-        let core = db_from(&[("firefox", "128.0-1", ""), ("openssl", "3.3.1-1", "")], "core");
++        let core = db_from(
++            &[("firefox", "128.0-1", ""), ("openssl", "3.3.1-1", "")],
++            "core",
++        );
+         let repos = OfficialRepos::from_dbs(vec![core]);
+-        let hits: Vec<&str> = repos.search("FIRE").iter().map(|p| p.name.as_str()).collect();
++        let hits: Vec<&str> = repos
++            .search("FIRE")
++            .iter()
++            .map(|p| p.name.as_str())
++            .collect();
+         assert_eq!(hits, ["firefox"]);
+         assert!(repos.search("nonexistent").is_empty());
+     }
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:243:
+     #[test]
+     fn search_dedups_names_shadowed_across_repos() {
+         let core = db_from(&[("foo-tool", "2.0-1", "")], "core");
+-        let extra = db_from(&[("foo-tool", "1.0-1", ""), ("foo-extra", "1.0-1", "")], "extra");
++        let extra = db_from(
++            &[("foo-tool", "1.0-1", ""), ("foo-extra", "1.0-1", "")],
++            "extra",
++        );
+         let repos = OfficialRepos::from_dbs(vec![core, extra]);
+         let hits = repos.search("foo");
+         let foo_tool_hits = hits.iter().filter(|p| p.name == "foo-tool").count();
+Diff in /home/ravi/archon/crates/archon-repo/src/lib.rs:250:
+-        assert_eq!(foo_tool_hits, 1, "foo-tool must appear once, keeping core's precedence copy");
+-        assert_eq!(hits.iter().find(|p| p.name == "foo-tool").unwrap().version.to_string(), "2.0-1");
++        assert_eq!(
++            foo_tool_hits, 1,
++            "foo-tool must appear once, keeping core's precedence copy"
++        );
++        assert_eq!(
++            hits.iter()
++                .find(|p| p.name == "foo-tool")
++                .unwrap()
++                .version
++                .to_string(),
++            "2.0-1"
++        );
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-repo/src/local_db.rs:46:
+         let mut versions = HashMap::new();
+         for entry in entries.flatten() {
+             let desc_path = entry.path().join("desc");
+-            let Ok(contents) = std::fs::read_to_string(&desc_path) else { continue };
+-            let Ok(meta) = desc::parse("local", &contents) else { continue };
++            let Ok(contents) = std::fs::read_to_string(&desc_path) else {
++                continue;
++            };
++            let Ok(meta) = desc::parse("local", &contents) else {
++                continue;
++            };
+             versions.insert(meta.name, meta.version);
+         }
+         Ok(Self { versions })
+Diff in /home/ravi/archon/crates/archon-repo/src/local_db.rs:66:
+         let Ok(fingerprint) = cache::Fingerprint::of_dir(local_dir) else {
+             return Self::load(local_dir);
+         };
+-        if let Some(versions) = cache::try_read::<HashMap<String, Version>>(cache_path, &fingerprint) {
++        if let Some(versions) =
++            cache::try_read::<HashMap<String, Version>>(cache_path, &fingerprint)
++        {
+             return Ok(Self { versions });
+         }
+         let this = Self::load(local_dir)?;
+Diff in /home/ravi/archon/crates/archon-repo/src/local_db.rs:142:
+     fn skips_unparseable_entries_without_failing() {
+         let dir = fixture(&[("good", "1.0-1")]);
+         std::fs::create_dir_all(dir.path().join("garbage-dir")).unwrap();
+-        std::fs::write(dir.path().join("garbage-dir").join("desc"), "not a valid desc file").unwrap();
++        std::fs::write(
++            dir.path().join("garbage-dir").join("desc"),
++            "not a valid desc file",
++        )
++        .unwrap();
+         let db = LocalDb::load(dir.path()).unwrap();
+         assert_eq!(db.len(), 1);
+         assert!(db.version_of("good").is_some());
+Diff in /home/ravi/archon/crates/archon-repo/src/sync_db.rs:121:
+         let mut provides_index: HashMap<String, Vec<String>> = HashMap::new();
+         for pkg in &packages {
+             for provide in &pkg.provides {
+-                provides_index.entry(provide.name.clone()).or_default().push(pkg.name.clone());
++                provides_index
++                    .entry(provide.name.clone())
++                    .or_default()
++                    .push(pkg.name.clone());
+             }
+         }
+         for v in provides_index.values_mut() {
+Diff in /home/ravi/archon/crates/archon-repo/src/sync_db.rs:129:
+             v.dedup();
+         }
+         let packages = packages.into_iter().map(|p| (p.name.clone(), p)).collect();
+-        Self { name, packages, provides_index }
++        Self {
++            name,
++            packages,
++            provides_index,
++        }
+     }
+ 
+     pub fn packages(&self) -> impl Iterator<Item = &PackageMeta> {
+Diff in /home/ravi/archon/crates/archon-repo/src/sync_db.rs:200:
+     fn parses_plain_tar() {
+         let tarball = fixture_tar(&[
+             ("foo-1.0-1", &desc("foo", "1.0-1", "%DEPENDS%\nbar\n")),
+-            ("bar-2.0-1", &desc("bar", "2.0-1", "%PROVIDES%\nlibbar=2.0\n")),
++            (
++                "bar-2.0-1",
++                &desc("bar", "2.0-1", "%PROVIDES%\nlibbar=2.0\n"),
++            ),
+         ]);
+         let db = SyncDb::from_tar_bytes("core", &tarball).unwrap();
+         assert_eq!(db.len(), 2);
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:40:
+ 
+ impl<'a> Resolver<'a> {
+     pub fn new(providers: Vec<&'a dyn PackageProvider>) -> Self {
+-        Self { providers, prefer_installed: None }
++        Self {
++            providers,
++            prefer_installed: None,
++        }
+     }
+ 
+     /// When a virtual dependency (`provides=()`) can be satisfied by more
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:138:
+                 }
+                 let mut newly_found = Vec::new();
+                 for name in &missing {
+-                    let deps_for_name: Vec<&Dependency> =
+-                        pending.iter().map(|(d, _)| d).filter(|d| &d.name == name).collect();
++                    let deps_for_name: Vec<&Dependency> = pending
++                        .iter()
++                        .map(|(d, _)| d)
++                        .filter(|d| &d.name == name)
++                        .collect();
+                     let mut candidates: Vec<PackageMeta> = provider
+                         .find_providers(name)?
+                         .into_iter()
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:151:
+                         // every candidate conflicts, so selection still
+                         // reports a conflict rather than NotFound.
+                         let compatible = |candidate: &PackageMeta| {
+-                            !resolved.values().any(|existing| package_conflict(candidate, existing).is_some())
++                            !resolved
++                                .values()
++                                .any(|existing| package_conflict(candidate, existing).is_some())
+                         };
+                         if candidates.iter().any(&compatible) {
+                             candidates.retain(compatible);
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:171:
+                         // name we just looked up. If another pending dep in this same batch
+                         // asks for this package by its concrete name, Phase C needs to
+                         // find it there, not just under the virtual name.
+-                        found.entry(pick.name.clone()).or_insert_with(|| pick.clone());
++                        found
++                            .entry(pick.name.clone())
++                            .or_insert_with(|| pick.clone());
+                         found.entry(name.clone()).or_insert(pick);
+                         newly_found.push(name.clone());
+                     }
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:223:
+ 
+                 // Check if the selected meta conflicts with anything already resolved.
+                 // If it does, and we have an alternative, fall back to it!
+-                let conflict = resolved.values().find_map(|existing| package_conflict(&meta, existing));
++                let conflict = resolved
++                    .values()
++                    .find_map(|existing| package_conflict(&meta, existing));
+ 
+                 if let Some(error) = conflict {
+                     if let Some(alt) = dep.alternatives.first() {
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:324:
+ 
+ /// A conflict in either direction between two selected candidates.
+ fn package_conflict(candidate: &PackageMeta, existing: &PackageMeta) -> Option<ResolveError> {
+-    if candidate.conflicts.iter().any(|c| c.name != candidate.name && existing.satisfies(c)) {
++    if candidate
++        .conflicts
++        .iter()
++        .any(|c| c.name != candidate.name && existing.satisfies(c))
++    {
+         return Some(ResolveError::PackageConflict {
+             a: candidate.name.clone(),
+             b: existing.name.clone(),
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:331:
+             declared_by: candidate.name.clone(),
+         });
+     }
+-    if existing.conflicts.iter().any(|c| c.name != existing.name && candidate.satisfies(c)) {
++    if existing
++        .conflicts
++        .iter()
++        .any(|c| c.name != existing.name && candidate.satisfies(c))
++    {
+         return Some(ResolveError::PackageConflict {
+             a: existing.name.clone(),
+             b: candidate.name.clone(),
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:403:
+             let Some(meta) = resolved.get(dependent).filter(|m| m.is_aur()) else {
+                 continue;
+             };
+-            let declared = meta.depends.iter().chain(meta.make_depends.iter()).any(|dep| {
+-                dep.to_string() == *spec || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
+-            });
++            let declared = meta
++                .depends
++                .iter()
++                .chain(meta.make_depends.iter())
++                .any(|dep| {
++                    dep.to_string() == *spec
++                        || dep.alternatives.iter().any(|alt| alt.to_string() == *spec)
++                });
+             if declared && dependent != dependency {
+-                edges.entry(dependency.clone()).or_default().insert(dependent.clone());
++                edges
++                    .entry(dependency.clone())
++                    .or_default()
++                    .insert(dependent.clone());
+             }
+         }
+     }
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:468:
+             source: if aur {
+                 PackageSource::Aur
+             } else {
+-                PackageSource::Official { repo: "core".into() }
++                PackageSource::Official {
++                    repo: "core".into(),
++                }
+             },
+             depends: deps(depends),
+             make_depends: deps(make_depends),
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:479:
+ 
+     impl MockProvider {
+         fn official(pkgs: Vec<PackageMeta>) -> Self {
+-            Self { label: "official", aur: false, pkgs }
++            Self {
++                label: "official",
++                aur: false,
++                pkgs,
++            }
+         }
+         fn aur(pkgs: Vec<PackageMeta>) -> Self {
+-            Self { label: "aur", aur: true, pkgs }
++            Self {
++                label: "aur",
++                aur: true,
++                pkgs,
++            }
+         }
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:528:
+     fn aur_alternative_is_built_before_its_dependent() {
+         let mut scanner = pkg(true, "a-scanner", "1", &[], &[], &[], &[]);
+         let mut dependency = Dependency::parse("missing-library").unwrap();
+-        dependency.alternatives.push(Dependency::parse("z-library").unwrap());
++        dependency
++            .alternatives
++            .push(Dependency::parse("z-library").unwrap());
+         scanner.depends.push(dependency);
+         let plan = resolve(
+             vec![],
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:535:
+             vec![scanner, pkg(true, "z-library", "1", &[], &[], &[], &[])],
+             &["a-scanner"],
+-        ).unwrap();
++        )
++        .unwrap();
+         assert_eq!(names(&plan.aur), ["z-library", "a-scanner"]);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:544:
+             vec![
+                 pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
+                 pkg(false, "openssl", "1", &[], &[], &[], &[]),
+-                pkg(false, "a-tls", "1", &["rejected-only-dependency"], &[], &["openssl"], &["tls-api"]),
++                pkg(
++                    false,
++                    "a-tls",
++                    "1",
++                    &["rejected-only-dependency"],
++                    &[],
++                    &["openssl"],
++                    &["tls-api"],
++                ),
+                 pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
+             ],
+             vec![],
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:551:
+             &["scanner", "openssl"],
+-        ).unwrap();
++        )
++        .unwrap();
+         assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:562:
+             pkg(false, "z-tls", "1", &[], &[], &[], &["tls-api"]),
+         ]);
+         let installed = HashSet::from(["a-tls".to_string()]);
+-        let plan = Resolver::new(vec![&official]).prefer_installed(&installed)
+-            .resolve(&["scanner".into(), "openssl".into()]).unwrap();
++        let plan = Resolver::new(vec![&official])
++            .prefer_installed(&installed)
++            .resolve(&["scanner".into(), "openssl".into()])
++            .unwrap();
+         assert_eq!(names(&plan.official), ["openssl", "scanner", "z-tls"]);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:573:
+             vec![
+                 pkg(false, "scanner", "1", &["tls-api"], &[], &[], &[]),
+                 pkg(false, "openssl", "1", &[], &[], &[], &[]),
+-                pkg(false, "a-tls", "1", &["unavailable"], &[], &["openssl"], &["tls-api"]),
++                pkg(
++                    false,
++                    "a-tls",
++                    "1",
++                    &["unavailable"],
++                    &[],
++                    &["openssl"],
++                    &["tls-api"],
++                ),
+             ],
+             vec![],
+             &["scanner", "openssl"],
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:580:
+         );
+-        assert!(matches!(result, Err(ResolveError::PackageConflict { .. })), "{result:?}");
++        assert!(
++            matches!(result, Err(ResolveError::PackageConflict { .. })),
++            "{result:?}"
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:590:
+                 pkg(true, "scanner", "1", &["target"], &[], &[], &[]),
+             ],
+             &["target", "scanner"],
+-        ).unwrap();
++        )
++        .unwrap();
+         assert_eq!(names(&plan.aur), ["target", "scanner"]);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:638:
+         )
+         .unwrap();
+         assert_eq!(plan.package_count(), 4);
+-        let base = plan.official.iter().find(|p| p.meta.name == "base").unwrap();
++        let base = plan
++            .official
++            .iter()
++            .find(|p| p.meta.name == "base")
++            .unwrap();
+         let mut req = base.required_by.clone();
+         req.sort();
+         assert_eq!(req, ["left", "right"]);
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:733:
+     fn prefer_installed_avoids_unnecessary_conflicting_swap() {
+         let official = MockProvider::official(vec![
+             pkg(false, "app", "1.0-1", &["jack"], &[], &[], &[]),
+-            pkg(false, "jack2", "1.9-1", &[], &[], &["pipewire-jack"], &["jack"]),
+-            pkg(false, "pipewire-jack", "1.6-1", &[], &[], &["jack2"], &["jack"]),
++            pkg(
++                false,
++                "jack2",
++                "1.9-1",
++                &[],
++                &[],
++                &["pipewire-jack"],
++                &["jack"],
++            ),
++            pkg(
++                false,
++                "pipewire-jack",
++                "1.6-1",
++                &[],
++                &[],
++                &["jack2"],
++                &["jack"],
++            ),
+         ]);
+         let aur = MockProvider::aur(vec![]);
+         let installed: HashSet<String> = ["pipewire-jack".to_string()].into_iter().collect();
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:831:
+         )
+         .unwrap_err();
+         match err {
+-            ResolveError::NoSatisfyingVersion { name, available, required_by, .. } => {
++            ResolveError::NoSatisfyingVersion {
++                name,
++                available,
++                required_by,
++                ..
++            } => {
+                 assert_eq!(name, "lib");
+                 assert_eq!(available, "2.0-1");
+                 assert_eq!(required_by, "app");
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:868:
+             &["a", "b"],
+         )
+         .unwrap_err();
+-        assert!(matches!(err, ResolveError::PackageConflict { .. }), "got: {err}");
++        assert!(
++            matches!(err, ResolveError::PackageConflict { .. }),
++            "got: {err}"
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:876:
+         // Common PKGBUILD idiom: provides=(foo) conflicts=(foo).
+         let plan = resolve(
+             vec![],
+-            vec![pkg(true, "foo-git", "1.0-1", &[], &[], &["foo-git"], &["foo-git"])],
++            vec![pkg(
++                true,
++                "foo-git",
++                "1.0-1",
++                &[],
++                &[],
++                &["foo-git"],
++                &["foo-git"],
++            )],
+             &["foo-git"],
+         );
+-        assert!(plan.is_ok(), "self-conflict must not be fatal: {:?}", plan.err());
++        assert!(
++            plan.is_ok(),
++            "self-conflict must not be fatal: {:?}",
++            plan.err()
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:895:
+         .unwrap_err();
+         match err {
+             ResolveError::DependencyCycle { cycle } => {
+-                assert!(cycle.len() >= 3, "cycle path should close on itself: {cycle:?}");
++                assert!(
++                    cycle.len() >= 3,
++                    "cycle path should close on itself: {cycle:?}"
++                );
+                 assert_eq!(cycle.first(), cycle.last());
+             }
+             other => panic!("expected DependencyCycle, got: {other}"),
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:914:
+             vec![],
+             &["glibc"],
+         );
+-        assert!(plan.is_ok(), "official cycle must be fine: {:?}", plan.err());
++        assert!(
++            plan.is_ok(),
++            "official cycle must be fine: {:?}",
++            plan.err()
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:921:
+     fn alternatives_fallback_if_primary_fails() {
+         let mut p = pkg(false, "app", "1.0-1", &[], &[], &[], &[]);
+         let mut dep = Dependency::parse("missing-pkg").unwrap();
+-        dep.alternatives.push(Dependency::parse("available-pkg").unwrap());
++        dep.alternatives
++            .push(Dependency::parse("available-pkg").unwrap());
+         p.depends.push(dep);
+ 
+         let plan = resolve(
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:928:
+-            vec![
+-                p,
+-                pkg(false, "available-pkg", "1.0-1", &[], &[], &[], &[]),
+-            ],
++            vec![p, pkg(false, "available-pkg", "1.0-1", &[], &[], &[], &[])],
+             vec![],
+             &["app"],
+-        ).unwrap();
++        )
++        .unwrap();
+         assert_eq!(names(&plan.official), ["app", "available-pkg"]);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:946:
+         // postfix and exim4 both exist.
+         // But the user ALSO explicitly installed "otherapp", which depends on "exim4"
+         // and conflicts with "postfix".
+-        let otherapp = pkg(false, "otherapp", "1.0-1", &["exim4"], &[], &["postfix"], &[]);
++        let otherapp = pkg(
++            false,
++            "otherapp",
++            "1.0-1",
++            &["exim4"],
++            &[],
++            &["postfix"],
++            &[],
++        );
+ 
+         let plan = resolve(
+             vec![
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:959:
+             &["app", "otherapp"],
+         )
+         .unwrap();
+-        
++
+         assert!(names(&plan.official).contains(&"exim4"));
+         assert!(!names(&plan.official).contains(&"postfix"));
+     }
+Diff in /home/ravi/archon/crates/archon-resolver/src/lib.rs:983:
+             &["app>=2"],
+         )
+         .unwrap_err();
+-        assert!(matches!(err, ResolveError::NoSatisfyingVersion { .. }), "got: {err}");
++        assert!(
++            matches!(err, ResolveError::NoSatisfyingVersion { .. }),
++            "got: {err}"
++        );
+     }
+ }
+ 
+Diff in /home/ravi/archon/crates/archon-resolver/src/suggest.rs:19:
+ pub fn suggest(query: &str, candidates: &[PackageRef], max_results: usize) -> Vec<Suggestion> {
+     let query_len = query.chars().count();
+     let query_lower = query.to_lowercase();
+-    
++
+     let mut suggestions: Vec<Suggestion> = candidates
+         .iter()
+         .filter(|c| {
+Diff in /home/ravi/archon/crates/archon-resolver/src/suggest.rs:26:
+             let c_len = c.name.chars().count();
+-            let delta = if c_len > query_len { c_len - query_len } else { query_len - c_len };
++            let delta = if c_len > query_len {
++                c_len - query_len
++            } else {
++                query_len - c_len
++            };
+             delta <= MAX_LENGTH_DELTA
+         })
+         .filter_map(|c| {
+Diff in /home/ravi/archon/crates/archon-resolver/src/suggest.rs:39:
+             }
+         })
+         .collect();
+-        
+-    suggestions.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
++
++    suggestions.sort_by(|a, b| {
++        b.similarity
++            .partial_cmp(&a.similarity)
++            .unwrap_or(std::cmp::Ordering::Equal)
++    });
+     suggestions.truncate(max_results);
+     suggestions
+ }
+Diff in /home/ravi/archon/crates/archon-sandbox/src/policy.rs:65:
+         args.extend(["--cap-drop".into(), "ALL".into()]);
+         // Whole host visible read-only: toolchain, headers, pacman db.
+         args.extend(["--ro-bind".into(), "/".into(), "/".into()]);
+-        args.extend(
+-            [
+-                "--proc", "/proc",
+-                "--dev", "/dev",
+-                "--tmpfs", "/tmp",
+-            ]
+-            .map(String::from),
+-        );
++        args.extend(["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"].map(String::from));
+         // Mask other users' homes and root's home before re-exposing just
+         // the build directory, in case it happens to live under /home.
+         args.extend(["--tmpfs".into(), "/home".into()]);
+Diff in /home/ravi/archon/crates/archon-sandbox/src/policy.rs:174:
+             .windows(3)
+             .position(|w| w[0] == "--bind" && w[1] == "/home/user/build/foo")
+             .unwrap();
+-        assert!(pkg_bind > home_mask, "pkg_dir bind must come after the /home mask");
++        assert!(
++            pkg_bind > home_mask,
++            "pkg_dir bind must come after the /home mask"
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-sandbox/src/policy.rs:219:
+             .windows(2)
+             .position(|w| w[0] == "--tmpfs" && w[1] == "/tmp")
+             .unwrap();
+-        assert!(tmp_pos > ro_bind_pos, "--tmpfs /tmp must come after --ro-bind / /");
++        assert!(
++            tmp_pos > ro_bind_pos,
++            "--tmpfs /tmp must come after --ro-bind / /"
++        );
+     }
+ 
+     /// Regression test: without masking /run, a sandboxed `gpg` reaches
+Diff in /home/ravi/archon/crates/archon-sandbox/src/runner.rs:36:
+     #[error("failed to launch bwrap: {0}")]
+     Spawn(#[source] std::io::Error),
+     #[error("{stage:?} stage failed: makepkg exited with {status}")]
+-    BuildFailed { stage: BuildStage, status: ExitStatus },
++    BuildFailed {
++        stage: BuildStage,
++        status: ExitStatus,
++    },
+ }
+ 
+ /// Builds the `cgroup.procs` path as a `CString` up front — `pre_exec`
+Diff in /home/ravi/archon/crates/archon-sandbox/src/runner.rs:60:
+     let mut buf = [0u8; 12]; // i32::MAX is 10 digits; comfortably fits
+     let digits = write_decimal(&mut buf, pid);
+     let ret = unsafe { libc::write(fd, digits.as_ptr().cast(), digits.len()) };
+-    let write_err = if ret < 0 { Some(std::io::Error::last_os_error()) } else { None };
++    let write_err = if ret < 0 {
++        Some(std::io::Error::last_os_error())
++    } else {
++        None
++    };
+     unsafe { libc::close(fd) };
+     match write_err {
+         Some(e) => Err(e),
+Diff in /home/ravi/archon/crates/archon-types/src/bin/verify_dpkg.rs:1:
+ use archon_types::Version;
+-use std::process::Command;
+ use std::cmp::Ordering;
++use std::process::Command;
+ 
+ fn main() {
+     let pairs = vec![
+Diff in /home/ravi/archon/crates/archon-types/src/bin/verify_dpkg.rs:39:
+         let rust_ord = rust_a.vercmp(&rust_b);
+ 
+         let lt = Command::new("dpkg")
+-            .arg("--compare-versions").arg(a).arg("lt").arg(b)
+-            .status().unwrap().success();
++            .arg("--compare-versions")
++            .arg(a)
++            .arg("lt")
++            .arg(b)
++            .status()
++            .unwrap()
++            .success();
+         let gt = Command::new("dpkg")
+-            .arg("--compare-versions").arg(a).arg("gt").arg(b)
+-            .status().unwrap().success();
++            .arg("--compare-versions")
++            .arg(a)
++            .arg("gt")
++            .arg(b)
++            .status()
++            .unwrap()
++            .success();
+         let eq = Command::new("dpkg")
+-            .arg("--compare-versions").arg(a).arg("eq").arg(b)
+-            .status().unwrap().success();
++            .arg("--compare-versions")
++            .arg(a)
++            .arg("eq")
++            .arg(b)
++            .status()
++            .unwrap()
++            .success();
+ 
+         let real_ord = if lt {
+             Ordering::Less
+Diff in /home/ravi/archon/crates/archon-types/src/bin/verify_dpkg.rs:59:
+         };
+ 
+         if rust_ord != real_ord {
+-            println!("MISMATCH: {} vs {} -> Rust says {:?}, dpkg says {:?}", a, b, rust_ord, real_ord);
++            println!(
++                "MISMATCH: {} vs {} -> Rust says {:?}, dpkg says {:?}",
++                a, b, rust_ord, real_ord
++            );
+             mismatches += 1;
+         } else {
+             println!("MATCH: {} vs {} -> {:?}", a, b, real_ord);
+Diff in /home/ravi/archon/crates/archon-types/src/dependency.rs:55:
+         // Strip optional-dependency description suffix (": description")
+         // Some AUR packages include these in Depends[] by mistake.
+         let spec = spec.split(": ").next().unwrap_or(spec).trim();
+-        
++
+         if spec.is_empty() {
+             return Err(DependencyParseError::Empty);
+         }
+Diff in /home/ravi/archon/crates/archon-types/src/dependency.rs:177:
+ 
+     #[test]
+     fn unconstrained_dep_accepts_anything() {
+-        assert!(Dependency::parse("foo").unwrap().is_satisfied_by(&ver("0.0.1")));
++        assert!(
++            Dependency::parse("foo")
++                .unwrap()
++                .is_satisfied_by(&ver("0.0.1"))
++        );
+     }
+ 
+     #[test]
+Diff in /home/ravi/archon/crates/archon-types/src/package.rs:61:
+             name: name.into(),
+             version: Version::parse(version).unwrap(),
+             description: None,
+-            source: PackageSource::Official { repo: "core".into() },
++            source: PackageSource::Official {
++                repo: "core".into(),
++            },
+             depends: vec![],
+             make_depends: vec![],
+             conflicts: vec![],
+Diff in /home/ravi/archon/crates/archon-types/src/package.rs:68:
+-            provides: provides.iter().map(|p| Dependency::parse(p).unwrap()).collect(),
++            provides: provides
++                .iter()
++                .map(|p| Dependency::parse(p).unwrap())
++                .collect(),
+         }
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-types/src/package.rs:80:
+     fn satisfies_via_provides() {
+         let p = pkg("bash", "5.2-1", &["sh"]);
+         assert!(p.satisfies(&Dependency::parse("sh").unwrap()));
+-        let jdk = pkg("jdk-openjdk", "21.0.2-1", &["jdk=21", "java-environment=21"]);
++        let jdk = pkg(
++            "jdk-openjdk",
++            "21.0.2-1",
++            &["jdk=21", "java-environment=21"],
++        );
+         assert!(jdk.satisfies(&Dependency::parse("jdk>=17").unwrap()));
+         assert!(!jdk.satisfies(&Dependency::parse("jdk>=22").unwrap()));
+     }
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:64:
+             Some((v, r)) => (v.to_owned(), Some(r.to_owned())),
+             None => (rest.to_owned(), None),
+         };
+-        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Alpm })
++        Ok(Version {
++            epoch,
++            pkgver,
++            pkgrel,
++            backend: VersionBackend::Alpm,
++        })
+     }
+ 
+     pub fn parse_dpkg(s: &str) -> Result<Self, VersionParseError> {
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:84:
+             Some(idx) => (rest[..idx].to_owned(), Some(rest[idx + 1..].to_owned())),
+             None => (rest.to_owned(), None),
+         };
+-        Ok(Version { epoch, pkgver, pkgrel, backend: VersionBackend::Dpkg })
++        Ok(Version {
++            epoch,
++            pkgver,
++            pkgrel,
++            backend: VersionBackend::Dpkg,
++        })
+     }
+ 
+     /// libalpm-compatible comparison (see type-level docs for the rules).
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:113:
+                     } else {
+                         rpmvercmp(a, b)
+                     }
+-                },
+-                (Some(a), None) => if self.backend == VersionBackend::Dpkg { dpkgvercmp(a, "") } else { Ordering::Equal },
+-                (None, Some(b)) => if other.backend == VersionBackend::Dpkg { dpkgvercmp("", b) } else { Ordering::Equal },
++                }
++                (Some(a), None) => {
++                    if self.backend == VersionBackend::Dpkg {
++                        dpkgvercmp(a, "")
++                    } else {
++                        Ordering::Equal
++                    }
++                }
++                (None, Some(b)) => {
++                    if other.backend == VersionBackend::Dpkg {
++                        dpkgvercmp("", b)
++                    } else {
++                        Ordering::Equal
++                    }
++                }
+                 _ => Ordering::Equal,
+             })
+     }
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:122:
+ }
+ 
+-
+-
+ fn dpkg_order(c: u8) -> i32 {
+     if c.is_ascii_alphabetic() {
+         c as i32
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:142:
+     while !a.is_empty() || !b.is_empty() {
+         let mut i = 0;
+         let mut j = 0;
+-        while i < a.len() && !a[i].is_ascii_digit() { i += 1; }
+-        while j < b.len() && !b[j].is_ascii_digit() { j += 1; }
++        while i < a.len() && !a[i].is_ascii_digit() {
++            i += 1;
++        }
++        while j < b.len() && !b[j].is_ascii_digit() {
++            j += 1;
++        }
+ 
+         let a_chars = &a[..i];
+         let b_chars = &b[..j];
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:165:
+ 
+         i = 0;
+         j = 0;
+-        while i < a.len() && a[i].is_ascii_digit() { i += 1; }
+-        while j < b.len() && b[j].is_ascii_digit() { j += 1; }
++        while i < a.len() && a[i].is_ascii_digit() {
++            i += 1;
++        }
++        while j < b.len() && b[j].is_ascii_digit() {
++            j += 1;
++        }
+ 
+         let mut a_digits = &a[..i];
+         let mut b_digits = &b[..j];
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:173:
+-        
+-        while a_digits.first() == Some(&b'0') { a_digits = &a_digits[1..]; }
+-        while b_digits.first() == Some(&b'0') { b_digits = &b_digits[1..]; }
+ 
+-        let ord = a_digits.len().cmp(&b_digits.len()).then_with(|| a_digits.cmp(b_digits));
++        while a_digits.first() == Some(&b'0') {
++            a_digits = &a_digits[1..];
++        }
++        while b_digits.first() == Some(&b'0') {
++            b_digits = &b_digits[1..];
++        }
++
++        let ord = a_digits
++            .len()
++            .cmp(&b_digits.len())
++            .then_with(|| a_digits.cmp(b_digits));
+         if ord != Ordering::Equal {
+             return ord;
+         }
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:256:
+         // `seg_a` is never empty here; if `b`'s segment is the other type,
+         // numeric beats alphabetic.
+         if seg_b.is_empty() {
+-            return if numeric { Ordering::Greater } else { Ordering::Less };
++            return if numeric {
++                Ordering::Greater
++            } else {
++                Ordering::Less
++            };
+         }
+ 
+         let ord = if numeric {
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:356:
+     /// adjacent pair (and by transitivity, every pair) must sort in order.
+     #[test]
+     fn man_page_alpha_chain() {
+-        let chain = ["1.0a", "1.0alpha", "1.0b", "1.0beta", "1.0rc", "1.0", "1.0.a", "1.0.1"];
++        let chain = [
++            "1.0a", "1.0alpha", "1.0b", "1.0beta", "1.0rc", "1.0", "1.0.a", "1.0.1",
++        ];
+         assert_chain_ascending(&chain);
+     }
+ 
+Diff in /home/ravi/archon/crates/archon-types/src/version.rs:442:
+         assert_eq!(v("1.0~rc1~2").vercmp(&v("1.0~rc1")), Less);
+         assert_eq!(v("1~rc1").vercmp(&v("1~rc1")), Equal);
+     }
+-    
++
+     fn dv(s: &str) -> Version {
+         Version::parse_dpkg(s).unwrap()
+     }

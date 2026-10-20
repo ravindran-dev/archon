@@ -1,0 +1,55 @@
+User-provided reproduction before the fix:
+$ archon install google-chrome
+zsh: command not found: archon
+
+Inspection found /home/ravi/.cargo/bin/archon (0.1.1), but
+/home/ravi/.cargo/bin was absent from PATH. /home/ravi/.local/bin
+was already present in both the execution PATH and .zshrc.
+
+$ cargo build --locked --offline --bin archon
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+
+Copied target/debug/archon atomically to /home/ravi/.local/bin/archon,
+mode 0755. This is a development build, not an optimized release build.
+No shell configuration changes and no system package operations.
+
+$ zsh -lc 'command -v archon; archon --version; archon install --help'
+/home/ravi/.local/bin/archon
+archon 0.2.0
+Resolve, show the install plan, confirm, then install
+
+Usage: archon install [OPTIONS] <PACKAGES>...
+
+Arguments:
+  <PACKAGES>...  Packages to install (official repo or AUR)
+
+Options:
+      --dry-run  Print the resolved install plan and exit without changing anything
+      --yes      Skip the confirmation prompt (still refuses on resolution errors)
+      --report   Monitor AUR builds with eBPF and show a report before offering to install. Requires root — re-run the whole command under `sudo`; archon drops back to your normal user to run the actual build (`makepkg` refuses to run as root regardless)
+  -h, --help     Print help
+
+$ timeout 45s /home/ravi/.local/bin/archon install google-chrome --dry-run
+✗ resolution failed
+Error: dependency resolution failed
+
+Caused by:
+    0: provider backend failure: AUR RPC request failed: error sending request for url (https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=google-chrome)
+    1: AUR RPC request failed: error sending request for url (https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=google-chrome)
+    2: error sending request for url (https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=google-chrome)
+    3: client error (Connect)
+    4: dns error
+    5: failed to lookup address information: Temporary failure in name resolution
+Exit 1 (not timeout).
+
+$ ARCHON_OS_RELEASE=<temporary ubuntu fixture with ID_LIKE=arch> archon install bash --dry-run
+Detected Debian/Ubuntu — delegating to apt (its own dependency resolution and confirmation apply, not archon's)
+sudo apt install bash
+exit: 0
+
+$ cargo test --workspace --locked --offline
+error: failed to download `fastrand v2.4.1`
+
+Caused by:
+  attempting to make an HTTP request, but --offline was specified
+Exit 101.

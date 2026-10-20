@@ -1,0 +1,6 @@
+UNVERIFIED: /sys/kernel/tracing/events/syscalls/sys_enter_execve/format: [Errno 13] Permission denied: '/sys/kernel/tracing/events/syscalls/sys_enter_execve/format'
+UNVERIFIED: /sys/kernel/tracing/events/syscalls/sys_enter_openat/format: [Errno 13] Permission denied: '/sys/kernel/tracing/events/syscalls/sys_enter_openat/format'
+UNVERIFIED: /sys/kernel/tracing/events/syscalls/sys_enter_openat/format: [Errno 13] Permission denied: '/sys/kernel/tracing/events/syscalls/sys_enter_openat/format'
+UNVERIFIED: /sys/kernel/tracing/events/syscalls/sys_enter_connect/format: [Errno 13] Permission denied: '/sys/kernel/tracing/events/syscalls/sys_enter_connect/format'
+Prebuilt object SHA256: 26e1cfeb330dc7e1b701f5989e15a2959a4a2156994b46cbd2b26ee6c1342015
+Live event capture and prebuilt/source correspondence remain UNVERIFIED by this check.

@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 112, in <module>
+    run_case(scenario)
+    ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 72, in run_case
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Aur)
+  File "/usr/lib/python3.14/socketserver.py", line 453, in __init__
+    self.socket = socket.socket(self.address_family,
+                  ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+                                self.socket_type)
+                                ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/socket.py", line 236, in __init__
+    _socket.socket.__init__(self, family, type, proto, fileno)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 1] Operation not permitted

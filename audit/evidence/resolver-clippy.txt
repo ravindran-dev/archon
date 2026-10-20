@@ -1,0 +1,47 @@
+     Locking 10 packages to highest compatible versions
+    Checking serde_core v1.0.229
+    Checking strsim v0.11.1
+    Checking thiserror v2.0.21
+    Checking serde v1.0.229
+    Checking archon-types v0.2.0 (/tmp/archon-resolver-check.fCDfZ3/crates/archon-types)
+error: this `if` has identical blocks
+   --> crates/archon-types/src/version.rs:284:29
+    |
+284 |               if b[j] == b'~' {
+    |  _____________________________^
+285 | |                 Ordering::Greater
+286 | |             } else if b[j].is_ascii_alphabetic() {
+    | |_____________^
+    |
+note: same as this
+   --> crates/archon-types/src/version.rs:286:50
+    |
+286 |               } else if b[j].is_ascii_alphabetic() {
+    |  __________________________________________________^
+287 | |                 Ordering::Greater
+288 | |             } else {
+    | |_____________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#if_same_then_else
+    = note: `-D clippy::if-same-then-else` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::if_same_then_else)]`
+
+error: this `if` has identical blocks
+   --> crates/archon-types/src/version.rs:293:29
+    |
+293 |               if a[i] == b'~' {
+    |  _____________________________^
+294 | |                 Ordering::Less
+295 | |             } else if a[i].is_ascii_alphabetic() {
+    | |_____________^
+    |
+note: same as this
+   --> crates/archon-types/src/version.rs:295:50
+    |
+295 |               } else if a[i].is_ascii_alphabetic() {
+    |  __________________________________________________^
+296 | |                 Ordering::Less
+297 | |             } else {
+    | |_____________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#if_same_then_else
+
+error: could not compile `archon-types` (lib) due to 2 previous errors

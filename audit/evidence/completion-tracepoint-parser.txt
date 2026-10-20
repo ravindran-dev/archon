@@ -1,0 +1,9 @@
+test_missing_field_rejected (__main__.ParserTests.test_missing_field_rejected) ... ok
+test_narrow_field_rejected (__main__.ParserTests.test_narrow_field_rejected) ... ok
+test_pointer_declaration (__main__.ParserTests.test_pointer_declaration) ... ok
+test_wrong_offset_rejected (__main__.ParserTests.test_wrong_offset_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+OK

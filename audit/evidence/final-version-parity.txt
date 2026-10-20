@@ -1,0 +1,5 @@
+$ python3 scripts/check-version-parity.py
+PASS: alpm: 900 comparisons, 0 mismatches
+UNVERIFIED: dpkg: native comparator not installed
+
+EXIT: 2

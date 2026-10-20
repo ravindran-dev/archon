@@ -1,0 +1,11 @@
+$ cargo clippy --workspace --locked --offline -- -D warnings
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+    Checking archon-aur v0.2.0 (/home/ravi/archon/crates/archon-aur)
+    Checking archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+    Checking archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+    Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.57s
+
+EXIT: 0

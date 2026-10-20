@@ -1,0 +1,7 @@
+$ cargo build --workspace --locked --offline
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.03s
+
+EXIT: 0

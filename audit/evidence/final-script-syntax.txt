@@ -1,0 +1,3 @@
+$ bash -n scripts/matrix.sh scripts/bench-resolver.sh scripts/test-resolver-offline.sh && sh -n scripts/matrix-scenarios.sh
+
+EXIT: 0

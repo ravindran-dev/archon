@@ -1,0 +1,6 @@
+   Compiling archon-types v0.2.0 (/home/ravi/archon/crates/archon-types)
+   Compiling archon-repo v0.2.0 (/home/ravi/archon/crates/archon-repo)
+   Compiling archon-aur v0.2.0 (/home/ravi/archon/crates/archon-aur)
+   Compiling archon-resolver v0.2.0 (/home/ravi/archon/crates/archon-resolver)
+   Compiling archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `release` profile [optimized] target(s) in 16.02s

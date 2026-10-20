@@ -1,0 +1,50 @@
+
+running 9 tests
+test client::tests::find_providers_refetches_and_filters ... FAILED
+test client::tests::rpc_error_body_becomes_error ... FAILED
+test model::tests::bad_version_error_names_the_package ... ok
+test model::tests::split_package_metadata_preserves_its_build_base ... ok
+test model::tests::deserializes_rpc_json_and_converts ... ok
+test client::tests::unknown_packages_are_negative_cached ... FAILED
+test client::tests::search_by_name_returns_partial_hits ... FAILED
+test model::tests::checkdepends_are_required_for_default_makepkg_checks ... ok
+test client::tests::info_fetches_and_caches ... FAILED
+
+failures:
+
+---- client::tests::find_providers_refetches_and_filters stdout ----
+
+thread 'client::tests::find_providers_refetches_and_filters' (302) panicked at /home/ravi/archon/crates/archon-aur/src/client.rs:187:57:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- client::tests::rpc_error_body_becomes_error stdout ----
+
+thread 'client::tests::rpc_error_body_becomes_error' (304) panicked at /home/ravi/archon/crates/archon-aur/src/client.rs:187:57:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+
+---- client::tests::unknown_packages_are_negative_cached stdout ----
+
+thread 'client::tests::unknown_packages_are_negative_cached' (306) panicked at /home/ravi/archon/crates/archon-aur/src/client.rs:187:57:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+
+---- client::tests::search_by_name_returns_partial_hits stdout ----
+
+thread 'client::tests::search_by_name_returns_partial_hits' (305) panicked at /home/ravi/archon/crates/archon-aur/src/client.rs:187:57:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+
+---- client::tests::info_fetches_and_caches stdout ----
+
+thread 'client::tests::info_fetches_and_caches' (303) panicked at /home/ravi/archon/crates/archon-aur/src/client.rs:187:57:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+
+
+failures:
+    client::tests::find_providers_refetches_and_filters
+    client::tests::info_fetches_and_caches
+    client::tests::rpc_error_body_becomes_error
+    client::tests::search_by_name_returns_partial_hits
+    client::tests::unknown_packages_are_negative_cached
+
+test result: FAILED. 4 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

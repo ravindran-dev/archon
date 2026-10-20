@@ -1,0 +1,9 @@
+$ cargo build --release --locked --offline --bin archon -j 2
+    Finished `release` profile [optimized] target(s) in 1.03s
+Backup: /tmp/archon-before-final-2n9s2dpg
+Installed: /home/ravi/.local/bin/archon
+SHA256: 3dbc95afba446073b568b9876947e14b4aac5fb04236595b23257d181df5489a
+$ zsh -lc 'command -v archon; archon --version'
+/home/ravi/.local/bin/archon
+archon 0.2.0
+EXIT: 0
