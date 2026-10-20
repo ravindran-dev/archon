@@ -39,6 +39,20 @@ focused test failed against the old hard-coded message and passes after the
 fix: [before](audit/evidence/production/distro-diagnostic-before.txt),
 [after](audit/evidence/production/distro-diagnostic-after.txt).
 
+### Native package argument boundary
+
+Non-Arch install/remove previously passed package strings beginning with `-`
+straight to native package-manager argv. A Debian dry-run reproduced
+`--allow-remove-essential` appearing as an apt option and exiting 0. Both
+install and remove now reject empty names and leading-dash names before distro
+dispatch. The regression covers both paths; raw before/after evidence is in
+[leading-dash-before.txt](audit/evidence/production/leading-dash-before.txt)
+and [leading-dash-after.txt](audit/evidence/production/leading-dash-after.txt).
+Strict all-target clippy and the focused new regressions pass after these
+changes. The previously recorded 229-test user workspace pass predates these
+last fail-closed/argument-guard commits; a complete suite rerun is still
+needed. This agent sandbox cannot bind localhost for the HTTP mocks.
+
 ### User-run verification follow-up (2026-10-20)
 
 The initial user run showed 33 CLI tests passing and one failure in
@@ -247,6 +261,7 @@ fix commit. Coverage is restricted to the cases actually exercised.
 | High / F | archon-monitor/src/report.rs, is_clean; commands/install.rs:812 | Zero captured events authorized a clean report; flagged/inconclusive installs needed explicit failure | fixed in report/CLI logic / ea0a3ce; live enforcement UNVERIFIED |
 | High / H,F | archon/src/pgp.rs:64,99; commands/install.rs:821 | Package-controlled .gnupg symlink is followed and its target chmodded; monitored caller runs helper as root before build privilege drop | fixed / 2baa64c: no host keyring writes or GPG subprocess; live sandbox/drop verification UNVERIFIED |
 | High / H | archon/src/commands/install.rs, archive selection/install | User-writable archive may change between pacman -Qp and privileged pacman -U | fixed in source: sealed immutable snapshot shared by validation and installation; real privileged transaction UNVERIFIED |
+| High / H | archon/src/commands/install.rs; commands/remove.rs | Leading-dash CLI package strings were passed as native package-manager options | fixed / d1081ba; fail-closed install/remove regression and raw output in audit/evidence/production/leading-dash-*.txt |
 | Medium / D | archon-resolver/src/lib.rs:215 | Chosen AUR alternative edges absent from build order | fixed / bb5bad9 |
 | Medium / D | archon-resolver/src/search.rs:187 | Incompatible virtual providers accepted; dependencies of conflict-rejected candidates produced misleading NotFound | fixed / 49c11c2, 3cbb779 |
 | Medium / F | archon/src/srcinfo.rs | git+https source hosts omitted from monitor allowlist | fixed for tested transports / 7c3f1bf |
