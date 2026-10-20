@@ -36,12 +36,20 @@ def run_case(case):
         # Only mocked sudo is reachable from the test; it never executes argv.
         sudo = tools / 'sudo'
         sudo.write_text('''#!/usr/bin/python3
-import json, os, sys
+import fcntl, json, os, pathlib, sys
 with open(os.environ['FIXTURE_LOG'], 'a') as f:
     f.write(json.dumps(sys.argv[1:]) + '\\n')
 if sys.argv[1:4] != ['pacman', '-U', '--needed']:
     sys.exit('unexpected privileged command in fixture')
-if os.environ['FIXTURE_CASE'] == 'dependency-chain' and '/z-lib/' in sys.argv[-1]:
+payloads = [json.loads(pathlib.Path(p).read_text()) for p in sys.argv[5:]]
+for path in sys.argv[5:]:
+    with open(path, 'rb') as archive:
+        seals = fcntl.fcntl(archive, fcntl.F_GET_SEALS)
+        expected = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+        assert seals & expected == expected, 'pacman must receive an immutable archive'
+with open(os.environ['FIXTURE_LOG'] + '.payloads', 'a') as f:
+    f.write(json.dumps(payloads) + '\\n')
+if os.environ['FIXTURE_CASE'] == 'dependency-chain' and payloads[0]['name'] == 'z-lib':
     open(os.environ['FIXTURE_LOG'] + '.dependency-installed', 'w').close()
 sys.exit(23 if os.environ['FIXTURE_CASE'] == 'install-failure' else 0)
 ''')
@@ -68,7 +76,7 @@ if '--noextract' in sys.argv:
         if os.environ['FIXTURE_CASE'] == 'archive-identity':
             artifact.unlink()
             (dest / 'fixture-app-addon-1-1-x86_64.pkg.tar.zst').write_text(json.dumps({'name': 'fixture-app-addon'}))
-        if os.environ['FIXTURE_CASE'] == 'signed-artifact':
+        if os.environ['FIXTURE_CASE'] in ('signed-artifact', 'invalid-signature'):
             pathlib.Path(str(artifact) + '.sig').write_bytes(b'fixture signature')
         if os.environ['FIXTURE_CASE'] == 'ambiguous-artifact':
             (dest / (dest.name + '-0-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': dest.name}))
@@ -76,11 +84,31 @@ if '--noextract' in sys.argv:
         bwrap.chmod(0o755)
         pacman = tools / 'pacman'
         pacman.write_text("""#!/usr/bin/python3
-import json, pathlib, sys
+import json, os, pathlib, sys
 if sys.argv[1:3] != ['-Qp', '--']: sys.exit('unexpected pacman invocation')
 print(json.loads(pathlib.Path(sys.argv[-1]).read_text())['name'] + ' 1-1')
+if os.environ['FIXTURE_CASE'] == 'archive-race':
+    origin = pathlib.Path(os.environ['XDG_CACHE_HOME']) / 'archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst'
+    origin.write_text(json.dumps({'name': 'attacker-replacement'}))
 """)
         pacman.chmod(0o755)
+        key = tools / 'pacman-key'
+        key.write_text('''#!/usr/bin/python3
+import fcntl, json, os, pathlib, sys
+assert sys.argv[1:3] == ['--verify', '--']
+assert pathlib.Path(sys.argv[3]).read_bytes() == b'fixture signature'
+assert json.loads(pathlib.Path(sys.argv[4]).read_text())['name'] == 'fixture-app'
+with open(os.environ['FIXTURE_LOG'] + '.signature', 'w') as f: f.write('verified')
+sys.exit(1 if os.environ['FIXTURE_CASE'] == 'invalid-signature' else 0)
+''')
+        key.chmod(0o755)
+        config = tools / 'pacman-conf'
+        config.write_text('''#!/usr/bin/python3
+import os
+print('PackageRequired' if os.environ['FIXTURE_CASE'] == 'signature-required' else 'PackageOptional')
+print('PackageTrustedOnly')
+''')
+        config.chmod(0o755)
         sync = work / 'sync'
         sync.mkdir()
         with tarfile.open(sync / 'core.db', 'w') as archive:
@@ -135,25 +163,39 @@ print(json.loads(pathlib.Path(sys.argv[-1]).read_text())['name'] + ' 1-1')
         print(result.stderr, end='')
         print('exit:', result.returncode)
         print('mock privileged argv:', calls)
+        payloads = [json.loads(line) for line in Path(str(log) + '.payloads').read_text().splitlines()] if Path(str(log) + '.payloads').exists() else []
+        if payloads: print('installed fixture payloads:', payloads)
         if case in ('success', 'signed-artifact'):
             assert result.returncode == 0, 'install must succeed'
             assert len(calls) == 1, 'successful AUR install must invoke pacman -U exactly once'
-            assert calls[0] == ['pacman', '-U', '--needed', '--', str(recipe / 'fixture-app-1-1-x86_64.pkg.tar.zst')]
+            assert calls[0][:4] == ['pacman', '-U', '--needed', '--']
+            assert len(calls[0]) == 5 and calls[0][4].startswith('/proc/')
+            assert payloads == [[{'name': 'fixture-app'}]]
             assert 'Not installed' not in result.stdout
+            if case == 'signed-artifact':
+                assert Path(str(log) + '.signature').exists(), 'detached signature must be verified against the immutable package'
+        elif case == 'archive-race':
+            payloads = [json.loads(line) for line in Path(str(log) + '.payloads').read_text().splitlines()]
+            print('installed fixture payloads:', payloads)
+            assert result.returncode == 0 and payloads == [[{'name': 'fixture-app'}]], 'validated archive was replaced before installation'
         elif case == 'split-base':
             assert result.returncode == 0
             assert len(calls) == 1 and len(calls[0]) == 6, 'split outputs must install together'
             assert (work / 'commands.jsonl.builds').read_text().splitlines() == ['built'], 'one recipe build per base'
-            assert all('/suite/' in path for path in calls[0][4:])
+            assert all(path.startswith('/proc/') for path in calls[0][4:])
+            assert len(set(calls[0][4:])) == 2
+            assert sorted(p['name'] for p in payloads[0]) == ['fixture-app', 'fixture-lib']
         elif case == 'dependency-chain':
             assert result.returncode == 0 and len(calls) == 2
-            assert '/z-lib/' in calls[0][-1] and '/fixture-app/' in calls[1][-1]
+            assert payloads == [[{'name': 'z-lib'}], [{'name': 'fixture-app'}]]
         elif case == 'install-failure':
             assert len(calls) == 1 and result.returncode != 0, 'pacman failure must propagate'
         elif case == 'dry-run':
             assert result.returncode == 0 and not calls, 'dry run must not install'
             assert not list(recipe.glob('*.pkg.tar*')), 'dry run must not build'
         else:
+            if case == 'signature-required':
+                assert 'LocalFileSigLevel' in result.stderr and not list(recipe.glob('*.pkg.tar*')), 'unsupported signature policy must fail before building'
             assert result.returncode != 0 and not calls, 'failed build/missing output must not install'
         print(f'PASS: {case}')
 
@@ -201,7 +243,7 @@ pub fn audit_unmonitored_install() -> Result<()> {
         wrapper = entry_wrapper
     (directory / 'install.rs').write_text(production + wrapper)
     modules = ''.join(f'#[path = {json.dumps(str(src / (name + ".rs")))}] mod {name};\n'
-                      for name in ['color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
+                      for name in ['archive', 'color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
     modules += ('mod commands {\n'
                 f'#[path = {json.dumps(str(directory / "install.rs"))}] pub mod install;\n'
                 f'#[path = {json.dumps(str(src / "commands/subprocess.rs"))}] pub mod subprocess;\n'
@@ -227,7 +269,7 @@ if __name__ == '__main__':
     DIRECT = '--direct' in scenarios
     if DIRECT: scenarios.remove('--direct')
     if DIRECT:
-        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain', 'split-base', 'archive-identity']
+        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain', 'split-base', 'archive-identity', 'archive-race', 'invalid-signature', 'signature-required']
         if 'dry-run' in scenarios:
             raise SystemExit('UNVERIFIED: direct harness does not exercise CLI dry-run dispatch')
         with tempfile.TemporaryDirectory(prefix='archon-direct-harness-') as harness:

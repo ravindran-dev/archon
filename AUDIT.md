@@ -35,6 +35,74 @@ Live bwrap isolation and privileged uid/gid dropping remain UNVERIFIED here;
 the mock regression proves dispatch and absence of host keyring mutations,
 not a functioning kernel namespace boundary.
 
+### Immutable archive handoff
+
+The check-to-install race is fixed in source. `archive::PackageArchive` opens
+regular files with O_NOFOLLOW/O_NONBLOCK, copies them to a Linux memfd, and
+adds WRITE/GROW/SHRINK/SEAL seals before any identity check. Both `pacman -Qp`
+and the eventual `pacman -U` read the same `/proc/<archon-pid>/fd/<n>` snapshot;
+the parent retains it until pacman exits. Neither installation path reopens
+the mutable build output. Failed sealing/copying is an error; no mutable fallback.
+
+Failed-first reproduction: `python3 scripts/repro-aur-install.py --direct archive-race`.
+Raw before: `installed fixture payloads: [[{'name': 'attacker-replacement'}]]`,
+then `AssertionError: validated archive was replaced before installation`.
+Raw after: `installed fixture payloads: [[{'name': 'fixture-app'}]]`,
+`PASS: archive-race`. The fake identity query replaces the original archive
+before the fake installation reads it. No host package transaction is executed.
+[Before](audit/evidence/release-blockers/archive-race-before.txt),
+[after, all 12 scenarios](audit/evidence/release-blockers/archive-install-after.txt).
+
+Additional native read-only probe: `python3 scripts/check-archive-snapshot.py`.
+Raw output:
+
+```text
+PASS: original replacement, write, grow, shrink, symlink and FIFO attacks rejected
+fixture-app 1-1
+PASS: real pacman parses sealed snapshot after original archive replacement
+Snapshot source label: fixture-app-1-1-any.pkg.tar
+```
+
+[Complete native output](audit/evidence/release-blockers/archive-snapshot-after.txt).
+Native pacman metadata parsing and kernel seals were actually exercised;
+privileged pacman installation and cross-user procfs permissions are UNVERIFIED.
+If procfs or memfd access is restricted, installation fails rather than falling
+back to a writable path. Snapshots consume temporary memory/swap proportional
+to the package outputs being installed in that build-base transaction.
+This protects the validation-to-install handoff, not the integrity of a build
+output *before* it is snapshotted or all privileged handling of the build tree.
+
+Descriptor paths cannot expose an adjacent `.sig`. To avoid silently dropping
+an existing detached signature under Optional policy, signature bytes are also
+snapshotted and `pacman-key --verify` must succeed against the frozen package
+before identity checking. Missing verifier, invalid/untrusted signatures and
+signature symlinks fail closed. The valid/invalid verification paths use mocks;
+live cryptographic verification against the host system keyring is UNVERIFIED.
+The signature regression failed first when verification was absent:
+[before](audit/evidence/release-blockers/snapshot-signature-before.txt).
+
+`pacman-conf LocalFileSigLevel` is checked before AUR builds. Required sibling
+signatures are currently unsupported by descriptor handoff: Archon explicitly
+refuses before building and does not relax pacman's policy. The required-policy
+regression also failed first:
+[before](audit/evidence/release-blockers/snapshot-policy-before.txt).
+All 12 installation scenarios pass, including this early refusal and rejection
+of invalid signatures. Existing tests now check sealed descriptors plus exact
+payload identity and dependency/split transaction order, rather than expecting
+the former mutable filenames; no coverage was deleted or ignored.
+
+`scripts/test-security-offline.sh` runs the actual PGP/archive module tests:
+6 passed, 0 failed, 0 ignored. It uses a separate temporary manifest with cached
+compatible tempfile 3.24.0/fastrand 2.3.0, not the workspace's locked versions.
+It does not change Cargo.lock or establish full-workspace verification.
+[Raw unit output](audit/evidence/release-blockers/security-module-tests.txt).
+Clippy/fmt pass after the archive fix; locked workspace tests remain blocked
+by missing fastrand v2.4.1. Matrix rerun: six UNVERIFIED (Docker absent).
+[Clippy](audit/evidence/release-blockers/archive-clippy.txt),
+[fmt](audit/evidence/release-blockers/archive-fmt.txt),
+[workspace failure](audit/evidence/release-blockers/archive-workspace-tests.txt),
+[matrix](audit/evidence/release-blockers/archive-matrix.txt).
+
 ## Current findings
 
 Locations refer to current source unless explicitly marked baseline.
@@ -53,8 +121,8 @@ fix commit. Coverage is restricted to the cases actually exercised.
 | High / G | archon/src/commands/install.rs:955 | Filename prefix accepted another split output (fixture-app-addon for fixture-app) | fixed, native archive identity check / 101a818 |
 | High / E | archon/src/correction.rs:3; commands/install.rs, typo path | Byte slicing panicked on éé; Arch suggestions consulted AptLists | fixed / 75b4c84 |
 | High / F | archon-monitor/src/report.rs, is_clean; commands/install.rs:812 | Zero captured events authorized a clean report; flagged/inconclusive installs needed explicit failure | fixed in report/CLI logic / ea0a3ce; live enforcement UNVERIFIED |
-| High / H,F | archon/src/pgp.rs:64,99; commands/install.rs:821 | Package-controlled .gnupg symlink is followed and its target chmodded; monitored caller runs helper as root before build privilege drop | **needs-decision, unfixed**: unprivileged traversal reproduced; root/GPG-config impact UNVERIFIED; automatic-import policy question pending |
-| High / H | archon/src/commands/install.rs, archive selection/install | User-writable archive may change between pacman -Qp and privileged pacman -U | unfixed-with-reason: trusted staging/privilege boundary not designed or proven |
+| High / H,F | archon/src/pgp.rs:64,99; commands/install.rs:821 | Package-controlled .gnupg symlink is followed and its target chmodded; monitored caller runs helper as root before build privilege drop | fixed / 2baa64c: no host keyring writes or GPG subprocess; live sandbox/drop verification UNVERIFIED |
+| High / H | archon/src/commands/install.rs, archive selection/install | User-writable archive may change between pacman -Qp and privileged pacman -U | fixed in source: sealed immutable snapshot shared by validation and installation; real privileged transaction UNVERIFIED |
 | Medium / D | archon-resolver/src/lib.rs:215 | Chosen AUR alternative edges absent from build order | fixed / bb5bad9 |
 | Medium / D | archon-resolver/src/search.rs:187 | Incompatible virtual providers accepted; dependencies of conflict-rejected candidates produced misleading NotFound | fixed / 49c11c2, 3cbb779 |
 | Medium / F | archon/src/srcinfo.rs | git+https source hosts omitted from monitor allowlist | fixed for tested transports / 7c3f1bf |
@@ -189,10 +257,9 @@ create_dir_all and set_permissions on the package-controlled path. The
 monitored caller explicitly invokes it before dropping root privileges.
 Untrusted fingerprints and gpg configuration paths also need review; their
 exploitability has not been demonstrated. The source comment calling this
-"cosmetic" is not evidence of safety. No after-fix output exists: no fix has
-been claimed. User decision requested: isolate imports as the build user
-(recommended) versus disable automatic imports and require manual key setup.
-Dependent implementation is paused pending that answer; other checks continued.
+"cosmetic" is not evidence of safety. This historical reproduction is now fixed by 2baa64c, which preserves automatic
+imports inside bwrap as the build user. See the release-blocker follow-up for
+after-fix evidence and live-verification limits.
 
 ## Completion regressions: commands and raw before/after outputs
 

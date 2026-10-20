@@ -1,0 +1,21 @@
+$ direct-production-path install fixture-app --yes
+case: archive-race
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/tmp/archon-aur-install-9ke25_2e/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst']]
+installed fixture payloads: [[{'name': 'attacker-replacement'}]]
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 245, in <module>
+    for scenario in scenarios: run_case(scenario)
+                               ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 152, in run_case
+    assert result.returncode == 0 and payloads == [[{'name': 'fixture-app'}]], 'validated archive was replaced before installation'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: validated archive was replaced before installation

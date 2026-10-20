@@ -1,0 +1,41 @@
+$ scripts/test-security-offline.sh
+     Locking 23 packages to highest Rust 1.99.1 compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling thiserror v2.0.21
+   Compiling getrandom v0.3.4
+   Compiling rustix v1.1.5
+   Compiling anyhow v1.0.104
+   Compiling cfg-if v1.0.5
+   Compiling linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.2
+   Compiling fastrand v2.3.0
+   Compiling once_cell v1.21.4
+   Compiling syn v3.0.9
+   Compiling tempfile v3.24.0
+   Compiling thiserror-impl v2.0.21
+   Compiling archon-sandbox v0.2.0 (/home/ravi/archon/crates/archon-sandbox)
+   Compiling archon-security-regressions v0.0.0 (/tmp/archon-security-tests.7uLjKA)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.17s
+     Running unittests lib.rs (/tmp/archon-security-regressions-target/debug/deps/archon_security_regressions-cf95e431d4eeaca4)
+
+running 6 tests
+test pgp::tests::extracts_single_key ... ok
+test pgp::tests::missing_array_returns_empty ... ok
+test pgp::tests::import_is_a_noop_without_a_pkgbuild ... ok
+test archive::tests::snapshot_survives_source_replacement_and_cannot_be_modified ... ok
+test archive::tests::symlink_and_fifo_archives_are_rejected ... ok
+test pgp::tests::extracts_multiple_multiline_keys ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests archon_security_regressions
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+EXIT: 0

@@ -1,0 +1,7 @@
+$ python3 scripts/check-archive-snapshot.py
+PASS: original replacement, write, grow, shrink, symlink and FIFO attacks rejected
+fixture-app 1-1
+PASS: real pacman parses sealed snapshot after original archive replacement
+Snapshot source label: fixture-app-1-1-any.pkg.tar
+
+EXIT: 0

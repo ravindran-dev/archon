@@ -165,8 +165,12 @@ regressions, raw verification logs, and unresolved security findings.
   keyring. Live kernel isolation and privileged user switching still need
   end-to-end verification.
 - Archive identity is checked with pacman; ambiguous outputs fail explicitly.
-  The race between checking a user-writable archive and privileged installation
-  remains unresolved. Custom pacman.conf repository priority, cache concurrency,
+  Validation and installation now use the same sealed Linux memfd snapshot;
+  real privileged procfs handoff remains unverified. Detached signatures require
+  explicit verification against the snapshot. LocalFileSigLevel=Required is
+  refused before AUR builds because descriptor paths cannot expose the required
+  sibling signature; pacman policy is never relaxed. Custom pacman.conf
+  repository priority, cache concurrency,
   and all package relationship combinations have not been exhaustively audited.
 - ALPM comparison matched native vercmp for 900 tested pairs. Native dpkg parity
   remains UNVERIFIED here because dpkg is absent. Cross-backend comparisons now

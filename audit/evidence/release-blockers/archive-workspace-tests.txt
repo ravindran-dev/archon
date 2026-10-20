@@ -1,0 +1,7 @@
+$ cargo test --workspace --locked --offline
+error: failed to download `fastrand v2.4.1`
+
+Caused by:
+  attempting to make an HTTP request, but --offline was specified
+
+EXIT: 101

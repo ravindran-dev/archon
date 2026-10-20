@@ -1,0 +1,152 @@
+$ python3 scripts/repro-aur-install.py --direct
+$ direct-production-path install fixture-app --yes
+case: success
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/45/fd/8']]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+PASS: success
+$ direct-production-path install fixture-app --yes
+case: install-failure
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+Error: pacman -U exited with exit status: 23 for fixture-app
+exit: 1
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/61/fd/8']]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+PASS: install-failure
+$ direct-production-path install fixture-app --yes
+case: build-failure
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✗ fixture-app failed (Build)
+Error: sandboxed build failed for fixture-app (Build stage)
+exit: 1
+mock privileged argv: []
+PASS: build-failure
+$ direct-production-path install fixture-app --yes
+case: missing-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-lgbqllp1/cache/archon/build/fixture-app, found 0; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: missing-artifact
+$ direct-production-path install fixture-app --yes
+case: signed-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/105/fd/8']]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+PASS: signed-artifact
+$ direct-production-path install fixture-app --yes
+case: ambiguous-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-lxapw5fm/cache/archon/build/fixture-app, found 2; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: ambiguous-artifact
+$ direct-production-path install fixture-app --yes
+case: dependency-chain
+
+↺ z-lib already cloned
+✓ z-lib (Fetch)
+✓ z-lib (Build)
+✓ z-lib built
+==> Installing z-lib via pacman -U
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/138/fd/8'], ['pacman', '-U', '--needed', '--', '/proc/138/fd/8']]
+installed fixture payloads: [[{'name': 'z-lib'}], [{'name': 'fixture-app'}]]
+PASS: dependency-chain
+$ direct-production-path install fixture-app --yes
+case: split-base
+
+↺ fixture-lib already cloned
+✓ suite (Fetch)
+✓ suite (Build)
+✓ suite built
+==> Installing fixture-lib via pacman -U
+
+Installed 2 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/166/fd/8', '/proc/166/fd/9']]
+installed fixture payloads: [[{'name': 'fixture-lib'}, {'name': 'fixture-app'}]]
+PASS: split-base
+$ direct-production-path install fixture-app --yes
+case: archive-identity
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: expected exactly one built package archive for fixture-app in /tmp/archon-aur-install-1salvyp4/cache/archon/build/fixture-app, found 0; refusing installation of missing or ambiguous output
+exit: 1
+mock privileged argv: []
+PASS: archive-identity
+$ direct-production-path install fixture-app --yes
+case: archive-race
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/198/fd/8']]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+PASS: archive-race
+$ direct-production-path install fixture-app --yes
+case: invalid-signature
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+Error: detached signature verification failed for /tmp/archon-aur-install-u7q6u9c0/cache/archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst; refusing installation
+exit: 1
+mock privileged argv: []
+PASS: invalid-signature
+$ direct-production-path install fixture-app --yes
+case: signature-required
+Error: LocalFileSigLevel requires a sibling signature, which sealed descriptor handoff cannot supply; refusing AUR installation before building (pacman policy is unchanged)
+exit: 1
+mock privileged argv: []
+PASS: signature-required
+
+EXIT: 0

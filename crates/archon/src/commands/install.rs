@@ -43,6 +43,7 @@ use archon_sandbox::{BuildStage, SandboxRunner};
 use archon_types::PackageProvider;
 
 use super::subprocess::{self, OutputCapture};
+use crate::archive::PackageArchive;
 use crate::spinner::Spinner;
 use crate::{color, srcinfo, ui};
 
@@ -580,6 +581,7 @@ pub(crate) fn build_in_sandbox(
 /// privilege elevation and its transaction confirmation.
 fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     ensure_bwrap()?;
+    crate::archive::check_handoff_policy()?;
     let build_root = build_dir()?;
     std::fs::create_dir_all(&build_root)
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
@@ -594,7 +596,7 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
         println!("==> Installing {} via pacman -U", pkg.meta.name);
         let status = Command::new("sudo")
             .args(["pacman", "-U", "--needed", "--"])
-            .args(&files)
+            .args(files.iter().map(PackageArchive::path))
             .status()
             .context("failed to execute sudo pacman -U")?;
         if !status.success() {
@@ -621,10 +623,10 @@ fn aur_build_groups(pkgs: &[PlannedPackage]) -> Vec<Vec<&PlannedPackage>> {
     groups
 }
 
-fn built_group_files(dest: &Path, group: &[&PlannedPackage]) -> Result<Vec<PathBuf>> {
+fn built_group_files(dest: &Path, group: &[&PlannedPackage]) -> Result<Vec<PackageArchive>> {
     let mut outputs = Vec::new();
     for pkg in group {
-        let files = find_package_files(dest, &pkg.meta.name)?;
+        let files = find_package_archives(dest, &pkg.meta.name)?;
         if files.len() != 1 {
             bail!(
                 "expected exactly one built package archive for {} in {}, found {}; refusing installation of missing or ambiguous output",
@@ -679,6 +681,7 @@ pub(crate) fn require_monitoring_privileges() -> Result<Privileges> {
 fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
     ensure_bwrap()?;
     let privileges = require_monitoring_privileges()?;
+    crate::archive::check_handoff_policy()?;
 
     let mut monitor = load_monitor()?;
 
@@ -745,13 +748,13 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
             "==> pacman -U {}",
             pkg_files
                 .iter()
-                .map(|p| p.display().to_string())
+                .map(|p| p.source().display().to_string())
                 .collect::<Vec<_>>()
                 .join(" ")
         );
         let status = Command::new("pacman")
-            .arg("-U")
-            .args(&pkg_files)
+            .args(["-U", "--needed", "--"])
+            .args(pkg_files.iter().map(PackageArchive::path))
             .status()
             .context("failed to execute pacman -U")?;
         if !status.success() {
@@ -930,6 +933,13 @@ fn drain_and_record(
 }
 
 pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
+    Ok(find_package_archives(dest, pkg_name)?
+        .into_iter()
+        .map(|archive| archive.source().to_path_buf())
+        .collect())
+}
+
+fn find_package_archives(dest: &Path, pkg_name: &str) -> Result<Vec<PackageArchive>> {
     let mut files = Vec::new();
     for entry in
         std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))?
@@ -945,9 +955,11 @@ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<Path
             && !name.contains("-debug-")
             && entry.file_type()?.is_file()
         {
+            let archive = PackageArchive::snapshot(&entry.path())?;
+            archive.verify_detached_signature()?;
             let identity = Command::new("pacman")
                 .args(["-Qp", "--"])
-                .arg(entry.path())
+                .arg(archive.path())
                 .output()
                 .context("failed to query built package identity with pacman -Qp")?;
             if !identity.status.success() {
@@ -960,7 +972,7 @@ pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<Path
             let metadata =
                 String::from_utf8(identity.stdout).context("invalid package identity output")?;
             if metadata.split_whitespace().next() == Some(pkg_name) {
-                files.push(entry.path());
+                files.push(archive);
             }
         }
     }

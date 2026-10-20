@@ -7,6 +7,7 @@
 //!   archon never touches pacman's databases itself.
 //! - `--dry-run` stops after printing the plan, guaranteed side-effect free.
 
+mod archive;
 mod color;
 mod commands;
 mod correction;

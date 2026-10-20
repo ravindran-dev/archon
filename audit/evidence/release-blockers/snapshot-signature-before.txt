@@ -1,0 +1,21 @@
+$ direct-production-path install fixture-app --yes
+case: signed-artifact
+
+↺ fixture-app already cloned
+✓ fixture-app (Fetch)
+✓ fixture-app (Build)
+✓ fixture-app built
+==> Installing fixture-app via pacman -U
+
+Installed 1 AUR package(s).
+exit: 0
+mock privileged argv: [['pacman', '-U', '--needed', '--', '/proc/45/fd/8']]
+installed fixture payloads: [[{'name': 'fixture-app'}]]
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 268, in <module>
+    for scenario in scenarios: run_case(scenario)
+                               ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 169, in run_case
+    assert Path(str(log) + '.signature').exists(), 'detached signature must be verified against the immutable package'
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+AssertionError: detached signature must be verified against the immutable package
