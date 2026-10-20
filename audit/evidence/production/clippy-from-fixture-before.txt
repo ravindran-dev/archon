@@ -1,0 +1,12 @@
+$ cargo clippy --workspace --all-targets -- -D warnings
+error: associated function `from_fixture` is never used
+  --> crates/archon/src/archive.rs:95:12
+   |
+26 | impl PackageArchive {
+   | ------------------- associated function in this implementation
+...
+95 |     pub fn from_fixture(source: &Path, signature: Option<&Path>) -> Result<Self> {
+   |            ^^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+error: could not compile `archon-cli` (bin "archon" test) due to 1 previous error

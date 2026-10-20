@@ -1,0 +1,3 @@
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+    Checking archon-cli v0.2.0 (/home/ravi/archon/crates/archon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.45s

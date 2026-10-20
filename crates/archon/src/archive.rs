@@ -91,17 +91,6 @@ impl PackageArchive {
         ))
     }
 
-    #[cfg(test)]
-    pub fn from_fixture(source: &Path, signature: Option<&Path>) -> Result<Self> {
-        Ok(Self {
-            source: source.to_owned(),
-            snapshot: Self::freeze(source, crate::handoff::MAX_PACKAGE_BYTES)?,
-            signature: signature
-                .map(|path| Self::freeze(path, crate::handoff::MAX_SIGNATURE_BYTES))
-                .transpose()?,
-        })
-    }
-
     pub fn source(&self) -> &Path {
         &self.source
     }
