@@ -186,6 +186,9 @@ fn dry_run_shows_transitive_dependencies() {
     assert!(out.stdout.contains("top"));
     assert!(out.stdout.contains("leaf"));
     assert!(out.stdout.contains("required by: top"));
+    assert!(out.stdout.contains("╭─ Install plan"));
+    assert!(out.stdout.contains("│  2 packages · 2 official · 0 AUR"));
+    assert!(out.stdout.contains("╰─"));
 }
 
 #[test]

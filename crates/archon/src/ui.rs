@@ -39,17 +39,16 @@ const SAMPLE_SIZE: usize = 16;
 /// answer might be "4 new, 420 already installed".
 pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
     let total = plan.package_count();
+    println!("{} {}", color::cyan("╭─"), color::bold("Install plan"));
     println!(
-        "{} {} package{} {}\n",
-        color::bold("▶ Install plan —"),
+        "{}  {} package{} · {} official · {} AUR",
+        color::cyan("│"),
         total,
         if total == 1 { "" } else { "s" },
-        color::dim(&format!(
-            "({} official, {} aur)",
-            plan.official.len(),
-            plan.aur.len()
-        )),
+        plan.official.len(),
+        plan.aur.len()
     );
+    println!("{}", color::cyan("│"));
 
     let is_satisfied =
         |p: &&PlannedPackage| local.is_some_and(|db| db.satisfies(&p.meta.name, &p.meta.version));
@@ -57,10 +56,11 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
     if !plan.aur.is_empty() {
         let (already, new): (Vec<&PlannedPackage>, Vec<&PlannedPackage>) =
             plan.aur.iter().partition(is_satisfied);
+        println!("{}  {}", color::cyan("│"), color::yellow("AUR"));
         for p in &new {
             let mut line = format!(
-                "  {} {}  {}",
-                color::yellow("AUR"),
+                "{}    {}  {}",
+                color::cyan("│"),
                 p.meta.name,
                 color::dim(&p.meta.version.to_string())
             );
@@ -75,11 +75,12 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
         if !already.is_empty() {
             let names: Vec<&str> = already.iter().map(|p| p.meta.name.as_str()).collect();
             println!(
-                "  {}",
+                "{}    {}",
+                color::cyan("│"),
                 color::dim(&format!("already installed: {}", names.join(", ")))
             );
         }
-        println!();
+        println!("{}", color::cyan("│"));
     }
 
     if !plan.official.is_empty() {
@@ -87,41 +88,45 @@ pub fn print_plan(plan: &InstallPlan, local: Option<&LocalDb>) {
             plan.official.iter().partition(is_satisfied);
         if new.is_empty() {
             println!(
-                "  {}",
-                color::dim(&format!(
-                    "Official: all {} already up to date",
+                "{}  {}",
+                color::cyan("│"),
+                color::green(&format!(
+                    "✓ Official · all {} already up to date",
                     plan.official.len()
-                ))
+                )),
             );
-            return;
-        }
-        let suffix = if already.is_empty() {
-            String::new()
         } else {
-            format!(", {} already up to date", already.len())
-        };
-        println!(
-            "  {}",
-            color::cyan(&format!("Official ({} new/updated{suffix}):", new.len()))
-        );
-        if new.len() <= DETAIL_THRESHOLD {
-            print_detailed(&new);
-        } else if new.len() <= SAMPLE_THRESHOLD {
-            let names: Vec<&str> = new.iter().map(|p| p.meta.name.as_str()).collect();
-            print_wrapped(&names);
-        } else {
-            let names: Vec<&str> = new
-                .iter()
-                .take(SAMPLE_SIZE)
-                .map(|p| p.meta.name.as_str())
-                .collect();
-            print_wrapped(&names);
+            let suffix = if already.is_empty() {
+                String::new()
+            } else {
+                format!(", {} already current", already.len())
+            };
             println!(
-                "    {}",
-                color::dim(&format!("... and {} more", new.len() - SAMPLE_SIZE))
+                "{}  {}",
+                color::cyan("│"),
+                color::cyan(&format!("Official · {} new{suffix}", new.len()))
             );
+            if new.len() <= DETAIL_THRESHOLD {
+                print_detailed(&new);
+            } else if new.len() <= SAMPLE_THRESHOLD {
+                let names: Vec<&str> = new.iter().map(|p| p.meta.name.as_str()).collect();
+                print_wrapped(&names);
+            } else {
+                let names: Vec<&str> = new
+                    .iter()
+                    .take(SAMPLE_SIZE)
+                    .map(|p| p.meta.name.as_str())
+                    .collect();
+                print_wrapped(&names);
+                println!(
+                    "{}    {}",
+                    color::cyan("│"),
+                    color::dim(&format!("… and {} more", new.len() - SAMPLE_SIZE))
+                );
+            }
         }
     }
+    println!("{}", color::cyan("╰─"));
 }
 
 /// One line per package — name, version, and (if it's a transitive
@@ -130,7 +135,8 @@ fn print_detailed(pkgs: &[&PlannedPackage]) {
     let name_width = pkgs.iter().map(|p| p.meta.name.len()).max().unwrap_or(0);
     for p in pkgs {
         let mut line = format!(
-            "    {:<name_width$}  {}",
+            "{}    {:<name_width$}  {}",
+            color::cyan("│"),
             p.meta.name,
             color::dim(&p.meta.version.to_string()),
             name_width = name_width
@@ -159,13 +165,13 @@ fn print_wrapped(names: &[&str]) {
             format!("{name}, ")
         };
         if line.len() > INDENT.len() && line.len() + piece.len() > WIDTH {
-            println!("{}", color::dim(&line));
+            println!("{}{}", color::cyan("│"), color::dim(&line));
             line = String::from(INDENT);
         }
         line.push_str(&piece);
     }
     if line.len() > INDENT.len() {
-        println!("{}", color::dim(&line));
+        println!("{}{}", color::cyan("│"), color::dim(&line));
     }
 }
 
@@ -203,7 +209,7 @@ pub fn print_report(report: &BuildReport) {
 /// this runs on the user's daily-driver machine, so ambiguous input must
 /// never be treated as consent.
 pub fn confirm(prompt: &str) -> Result<bool> {
-    print!("{} ", color::bold(&format!("{prompt} [y/N]")));
+    print!("{} {} [y/N] ", color::cyan("◆"), color::bold(prompt.trim()));
     std::io::stdout().flush()?;
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;

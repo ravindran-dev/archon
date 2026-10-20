@@ -91,26 +91,25 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
         found.len()
     ));
 
-    println!(
-        "{} {}\n",
-        color::bold("▶ Remove plan —"),
-        color::dim(&format!("{} package(s)", found.len()))
-    );
+    println!("{} {}", color::cyan("╭─"), color::bold("Remove plan"));
+    println!("{}  {} package(s)", color::cyan("│"), found.len());
+    println!("{}", color::cyan("│"));
     let name_width = found.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
     for (name, version) in &found {
         println!(
-            "  {:<name_width$}  {}",
+            "{}    {:<name_width$}  {}",
+            color::cyan("│"),
             name,
             color::dim(version),
             name_width = name_width
         );
     }
     println!(
-        "\n{}",
-        color::dim(
-            "pacman -Rs also removes any now-orphaned dependencies — nothing else on your system."
-        )
+        "{}  {}",
+        color::cyan("│"),
+        color::yellow("! pacman -Rs may also remove dependencies that become unused.")
     );
+    println!("{}", color::cyan("╰─"));
 
     if dry_run {
         return Ok(());

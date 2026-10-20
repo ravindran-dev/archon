@@ -285,7 +285,13 @@ fn run_with_history(
     }
 
     if !report && !plan.aur.is_empty() {
-        println!("AUR builds use bubblewrap without eBPF monitoring (enable with --report).");
+        println!(
+            "{} {}",
+            color::yellow("!"),
+            color::dim(
+                "AUR builds are sandboxed; eBPF monitoring is off (use --report to enable)."
+            )
+        );
     }
 
     if !yes && !ui::confirm("\nProceed with installation?")? {
@@ -608,7 +614,11 @@ fn build_aur_packages_with_installer(
         let runner = SandboxRunner::new(&dest).capture_output(true);
         build_in_sandbox(&runner, &dest, pkg.meta.build_base())?;
         let files = built_group_files(&dest, &group)?;
-        println!("==> Installing {} via pacman -U", pkg.meta.name);
+        println!(
+            "{} Installing {} with pacman",
+            color::cyan("→"),
+            color::bold(&pkg.meta.name)
+        );
         installer.install(&files)?;
     }
     println!("\nInstalled {} AUR package(s).", pkgs.len());
