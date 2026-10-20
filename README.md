@@ -156,7 +156,15 @@ regressions, raw verification logs, and unresolved security findings.
   qualifiers, Breaks, and Replaces are not fully modeled in that API.
 - Local `archon build` requires the Arch makepkg toolchain. A managed Arch
   container backend and a clearer non-Arch preflight remain unresolved.
-- Ordinary AUR installs build in bwrap and then install through pacman.
+- Ordinary AUR installs build in bwrap and then install through native pacman.
+  Before the first AUR install, run `archon setup-helper` once; this requests
+  administrator authorization to copy the companion `archon-install-helper`
+  to `/usr/local/libexec` as root-owned mode 0755. It does not set the helper
+  setuid. The receiver accepts only bounded package/signature bytes on stdin,
+  stages them in root-private storage, and passes staged archives to pacman
+  without changing `/etc/pacman.conf`; pacman remains responsible for native
+  signature verification and transaction confirmation. `LocalFileSigLevel`
+  requirements are supported when valid adjacent signatures are provided.
   eBPF is optional through `--report`. Zero-event and flagged reports block
   installation. Live tracepoint compatibility, event loss, malicious builds,
   and privileged installation are UNVERIFIED in this audit environment.
@@ -165,11 +173,10 @@ regressions, raw verification logs, and unresolved security findings.
   keyring. Real unprivileged bwrap/GPG preparation is tested; privileged user
   switching and successful signature verification still need end-to-end checks.
 - Archive identity is checked with pacman; ambiguous outputs fail explicitly.
-  Validation and installation now use the same sealed Linux memfd snapshot;
-  real privileged procfs handoff remains unverified. Detached signatures require
-  explicit verification against the snapshot. LocalFileSigLevel=Required is
-  refused before AUR builds because descriptor paths cannot expose the required
-  sibling signature; pacman policy is never relaxed. Custom pacman.conf
+  The archive and adjacent signature are frozen before transfer, then staged
+  privately by the root-owned receiver. Hermetic protocol tests pass; the
+  real privileged receiver and native signature enforcement remain UNVERIFIED
+  here. Custom pacman.conf
   repository priority, cache concurrency,
   and all package relationship combinations have not been exhaustively audited.
 - ALPM comparison matched native vercmp for 900 tested pairs. Native dpkg parity

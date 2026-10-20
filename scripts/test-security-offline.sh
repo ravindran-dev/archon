@@ -25,6 +25,6 @@ fastrand = "=2.3.0"
 [lib]
 path = "lib.rs"
 ''')
-(work / 'lib.rs').write_text(''.join('#[path = ' + json.dumps(str(root / 'crates/archon/src' / (module + '.rs'))) + '] pub mod ' + module + ';\n' for module in ['archive', 'pgp']))
+(work / 'lib.rs').write_text(''.join('#[path = ' + json.dumps(str(root / 'crates/archon/src' / (module + '.rs'))) + '] pub mod ' + module + ';\n' for module in ['handoff', 'archive', 'pgp']))
 PY
 CARGO_TARGET_DIR=/tmp/archon-security-regressions-target cargo test --offline --manifest-path "$work/Cargo.toml" "$@"

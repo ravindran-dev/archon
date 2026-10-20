@@ -18,6 +18,10 @@ categories = ["command-line-utilities", "os"]
 name = "archon"
 path = "src/main.rs"
 
+[[bin]]
+name = "archon-install-helper"
+path = "src/bin/archon-install-helper.rs"
+
 [dependencies]
 archon-types = { workspace = true }
 archon-repo = { workspace = true }

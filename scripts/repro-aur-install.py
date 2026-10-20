@@ -33,27 +33,7 @@ def run_case(case):
         tools = work / 'bin'
         tools.mkdir()
         log = work / 'commands.jsonl'
-        # Only mocked sudo is reachable from the test; it never executes argv.
-        sudo = tools / 'sudo'
-        sudo.write_text('''#!/usr/bin/python3
-import fcntl, json, os, pathlib, sys
-with open(os.environ['FIXTURE_LOG'], 'a') as f:
-    f.write(json.dumps(sys.argv[1:]) + '\\n')
-if sys.argv[1:4] != ['pacman', '-U', '--needed']:
-    sys.exit('unexpected privileged command in fixture')
-payloads = [json.loads(pathlib.Path(p).read_text()) for p in sys.argv[5:]]
-for path in sys.argv[5:]:
-    with open(path, 'rb') as archive:
-        seals = fcntl.fcntl(archive, fcntl.F_GET_SEALS)
-        expected = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
-        assert seals & expected == expected, 'pacman must receive an immutable archive'
-with open(os.environ['FIXTURE_LOG'] + '.payloads', 'a') as f:
-    f.write(json.dumps(payloads) + '\\n')
-if os.environ['FIXTURE_CASE'] == 'dependency-chain' and payloads[0]['name'] == 'z-lib':
-    open(os.environ['FIXTURE_LOG'] + '.dependency-installed', 'w').close()
-sys.exit(23 if os.environ['FIXTURE_CASE'] == 'install-failure' else 0)
-''')
-        sudo.chmod(0o755)
+        # Production helper installation is replaced by the injected fixture installer.
         bwrap = tools / 'bwrap'
         bwrap.write_text('''#!/usr/bin/python3
 import json, os, pathlib, sys
@@ -76,7 +56,7 @@ if '--noextract' in sys.argv:
         if os.environ['FIXTURE_CASE'] == 'archive-identity':
             artifact.unlink()
             (dest / 'fixture-app-addon-1-1-x86_64.pkg.tar.zst').write_text(json.dumps({'name': 'fixture-app-addon'}))
-        if os.environ['FIXTURE_CASE'] in ('signed-artifact', 'invalid-signature'):
+        if os.environ['FIXTURE_CASE'] in ('signed-artifact', 'invalid-signature', 'signature-required'):
             pathlib.Path(str(artifact) + '.sig').write_bytes(b'fixture signature')
         if os.environ['FIXTURE_CASE'] == 'ambiguous-artifact':
             (dest / (dest.name + '-0-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': dest.name}))
@@ -165,37 +145,33 @@ print('PackageTrustedOnly')
         print('mock privileged argv:', calls)
         payloads = [json.loads(line) for line in Path(str(log) + '.payloads').read_text().splitlines()] if Path(str(log) + '.payloads').exists() else []
         if payloads: print('installed fixture payloads:', payloads)
-        if case in ('success', 'signed-artifact'):
+        if case in ('success', 'signed-artifact', 'signature-required'):
             assert result.returncode == 0, 'install must succeed'
             assert len(calls) == 1, 'successful AUR install must invoke pacman -U exactly once'
-            assert calls[0][:4] == ['pacman', '-U', '--needed', '--']
-            assert len(calls[0]) == 5 and calls[0][4].startswith('/proc/')
+            assert calls[0][:4] == ['fixture-pacman', '-U', '--needed', '--']
+            assert len(calls[0]) == 5
             assert payloads == [[{'name': 'fixture-app'}]]
             assert 'Not installed' not in result.stdout
             if case == 'signed-artifact':
-                assert Path(str(log) + '.signature').exists(), 'detached signature must be verified against the immutable package'
+                assert payloads == [[{'name': 'fixture-app'}]], 'signed archive transaction must preserve package identity'
         elif case == 'archive-race':
             payloads = [json.loads(line) for line in Path(str(log) + '.payloads').read_text().splitlines()]
             print('installed fixture payloads:', payloads)
             assert result.returncode == 0 and payloads == [[{'name': 'fixture-app'}]], 'validated archive was replaced before installation'
         elif case == 'split-base':
             assert result.returncode == 0
-            assert len(calls) == 1 and len(calls[0]) == 6, 'split outputs must install together'
+            assert len(calls) == 1 and calls[0][4] == 2, 'split outputs must install together'
             assert (work / 'commands.jsonl.builds').read_text().splitlines() == ['built'], 'one recipe build per base'
-            assert all(path.startswith('/proc/') for path in calls[0][4:])
-            assert len(set(calls[0][4:])) == 2
             assert sorted(p['name'] for p in payloads[0]) == ['fixture-app', 'fixture-lib']
         elif case == 'dependency-chain':
             assert result.returncode == 0 and len(calls) == 2
             assert payloads == [[{'name': 'z-lib'}], [{'name': 'fixture-app'}]]
-        elif case == 'install-failure':
+        elif case in ('install-failure', 'invalid-signature'):
             assert len(calls) == 1 and result.returncode != 0, 'pacman failure must propagate'
         elif case == 'dry-run':
             assert result.returncode == 0 and not calls, 'dry run must not install'
             assert not list(recipe.glob('*.pkg.tar*')), 'dry run must not build'
         else:
-            if case == 'signature-required':
-                assert 'LocalFileSigLevel' in result.stderr and not list(recipe.glob('*.pkg.tar*')), 'unsupported signature policy must fail before building'
             assert result.returncode != 0 and not calls, 'failed build/missing output must not install'
         print(f'PASS: {case}')
 
@@ -210,6 +186,41 @@ def compile_direct_harness(directory, entry_wrapper=None):
     src = ROOT / 'crates/archon/src'
     production = (src / 'commands/install.rs').read_text()
     wrapper = r"""
+struct FixtureInstaller;
+impl ArchiveInstaller for FixtureInstaller {
+    fn preflight(&self) -> Result<()> { Ok(()) }
+    fn install(&self, archives: &[PackageArchive]) -> Result<()> {
+        use std::io::{Read, Write};
+        use anyhow::{bail, ensure};
+        use std::fs::File;
+        let mut payloads = Vec::new();
+        for archive in archives {
+            let mut bytes = Vec::new();
+            File::open(archive.path())?.read_to_end(&mut bytes)?;
+            payloads.push(serde_json::from_slice::<serde_json::Value>(&bytes)?);
+            if matches!(std::env::var("FIXTURE_CASE").as_deref(), Ok("signed-artifact" | "signature-required" | "invalid-signature")) {
+                let mut transaction = Vec::new();
+                PackageArchive::write_transaction(std::slice::from_ref(archive), &mut transaction)?;
+                let mut cursor = std::io::Cursor::new(transaction);
+                let root = crate::handoff::audit_private_tempdir()?;
+                let staged = crate::handoff::StagedTransaction::receive(&root, &mut cursor)?;
+                ensure!(std::fs::read(&staged.packages()[0])? == bytes, "staged package bytes differ");
+                let sig = staged.packages()[0].with_file_name(format!("{}.sig", archive.source().file_name().unwrap().to_string_lossy()));
+                ensure!(std::fs::read(sig)? == b"fixture signature", "staged signature differs");
+                drop(staged);
+                std::fs::remove_dir(root)?;
+            }
+        }
+        let log = std::env::var("FIXTURE_LOG")?;
+        std::fs::OpenOptions::new().create(true).append(true).open(&log)?.write_all(format!("{}\n", serde_json::json!(["fixture-pacman", "-U", "--needed", "--", archives.len()])).as_bytes())?;
+        std::fs::OpenOptions::new().create(true).append(true).open(format!("{log}.payloads"))?.write_all(format!("{}\n", serde_json::to_string(&payloads)?).as_bytes())?;
+        if std::env::var("FIXTURE_CASE").as_deref() == Ok("dependency-chain") && payloads[0]["name"] == "z-lib" { std::fs::write(format!("{log}.dependency-installed"), "ok")?; }
+        if std::env::var("FIXTURE_CASE").as_deref() == Ok("install-failure") { bail!("fixture pacman failure"); }
+        if std::env::var("FIXTURE_CASE").as_deref() == Ok("invalid-signature") { bail!("pacman: signature verification failed"); }
+        Ok(())
+    }
+}
+
 pub fn audit_unmonitored_install() -> Result<()> {
     let aur = AurClient::new("http://127.0.0.1:1")?;
     let pkg = PlannedPackage {
@@ -228,14 +239,14 @@ pub fn audit_unmonitored_install() -> Result<()> {
         app.meta.package_base = Some("suite".into());
         let mut library = app.clone();
         library.meta.name = "fixture-lib".into();
-        build_aur_packages(&aur, &[library, app])
+        build_aur_packages_with_installer(&aur, &[library, app], &FixtureInstaller)
     } else if std::env::var("FIXTURE_CASE").as_deref() == Ok("dependency-chain") {
         let mut dependency = pkg.clone();
         dependency.meta.name = "z-lib".into();
         dependency.meta.package_base = Some("z-lib".into());
-        build_aur_packages(&aur, &[dependency, pkg])
+        build_aur_packages_with_installer(&aur, &[dependency, pkg], &FixtureInstaller)
     } else {
-        build_aur_packages(&aur, &[pkg])
+        build_aur_packages_with_installer(&aur, &[pkg], &FixtureInstaller)
     }
 }
 """
@@ -244,7 +255,8 @@ pub fn audit_unmonitored_install() -> Result<()> {
     (directory / 'install.rs').write_text(production + wrapper)
     modules = ''.join(f'#[path = {json.dumps(str(src / (name + ".rs")))}] mod {name};\n'
                       for name in ['archive', 'color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
-    modules += ('mod commands {\n'
+    modules += ('#[cfg(test)] extern crate self as audit_test;\n'
+                f'#[path = {json.dumps(str(src / "handoff.rs"))}] mod handoff;\nmod commands {{\n'
                 f'#[path = {json.dumps(str(directory / "install.rs"))}] pub mod install;\n'
                 f'#[path = {json.dumps(str(src / "commands/subprocess.rs"))}] pub mod subprocess;\n'
                 '}\nfn main() -> anyhow::Result<()> { commands::install::audit_unmonitored_install() }\n')
@@ -252,7 +264,7 @@ pub fn audit_unmonitored_install() -> Result<()> {
     deps = ROOT / 'target/debug/deps'
     manifest = tomllib.loads((ROOT / 'crates/archon/Cargo.toml').read_text())
     output = directory / 'direct-install'
-    command = ['rustc', '--edition=2024', '-Adead_code', str(directory / 'main.rs'),
+    command = ['rustc', '--edition=2024', '--cfg', 'test', '-Adead_code', str(directory / 'main.rs'),
                '-L', f'dependency={deps}', '-o', str(output)]
     for dependency in manifest['dependencies']:
         name = dependency.replace('-', '_')
@@ -260,6 +272,13 @@ pub fn audit_unmonitored_install() -> Result<()> {
         if not libraries:
             raise RuntimeError(f'Build archon first; compiled dependency missing: {name}')
         command += ['--extern', f'{name}={libraries[-1]}']
+    for name in ['serde_json']:
+        libraries = sorted(deps.glob(f'lib{name}-*.rlib'), key=lambda p: p.stat().st_mtime)
+        if libraries:
+            command += ['--extern', f'{name}={libraries[-1]}']
+    libraries = sorted(deps.glob('libtempfile-*.rlib'), key=lambda p: p.stat().st_mtime)
+    if libraries:
+        command += ['--extern', f'tempfile={libraries[-1]}']
     subprocess.run(command, check=True)
     return output
 

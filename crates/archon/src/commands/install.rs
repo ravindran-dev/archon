@@ -43,7 +43,7 @@ use archon_sandbox::{BuildStage, SandboxRunner};
 use archon_types::PackageProvider;
 
 use super::subprocess::{self, OutputCapture};
-use crate::archive::PackageArchive;
+use crate::archive::{ArchiveInstaller, PackageArchive, RootInstaller};
 use crate::spinner::Spinner;
 use crate::{color, srcinfo, ui};
 
@@ -580,8 +580,16 @@ pub(crate) fn build_in_sandbox(
 /// available before building its dependents. Pacman owns installation,
 /// privilege elevation and its transaction confirmation.
 fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
+    build_aur_packages_with_installer(aur, pkgs, &RootInstaller)
+}
+
+fn build_aur_packages_with_installer(
+    aur: &AurClient,
+    pkgs: &[PlannedPackage],
+    installer: &dyn ArchiveInstaller,
+) -> Result<()> {
     ensure_bwrap()?;
-    crate::archive::check_handoff_policy()?;
+    installer.preflight()?;
     let build_root = build_dir()?;
     std::fs::create_dir_all(&build_root)
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
@@ -594,14 +602,7 @@ fn build_aur_packages(aur: &AurClient, pkgs: &[PlannedPackage]) -> Result<()> {
         build_in_sandbox(&runner, &dest, pkg.meta.build_base())?;
         let files = built_group_files(&dest, &group)?;
         println!("==> Installing {} via pacman -U", pkg.meta.name);
-        let status = Command::new("sudo")
-            .args(["pacman", "-U", "--needed", "--"])
-            .args(files.iter().map(PackageArchive::path))
-            .status()
-            .context("failed to execute sudo pacman -U")?;
-        if !status.success() {
-            bail!("pacman -U exited with {status} for {}", pkg.meta.name);
-        }
+        installer.install(&files)?;
     }
     println!("\nInstalled {} AUR package(s).", pkgs.len());
     Ok(())
@@ -752,14 +753,7 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        let status = Command::new("pacman")
-            .args(["-U", "--needed", "--"])
-            .args(pkg_files.iter().map(PackageArchive::path))
-            .status()
-            .context("failed to execute pacman -U")?;
-        if !status.success() {
-            bail!("pacman -U exited with {status} for {}", pkg.meta.name);
-        }
+        RootInstaller.install(&pkg_files)?;
     }
 
     Ok(())
@@ -956,7 +950,6 @@ fn find_package_archives(dest: &Path, pkg_name: &str) -> Result<Vec<PackageArchi
             && entry.file_type()?.is_file()
         {
             let archive = PackageArchive::snapshot(&entry.path())?;
-            archive.verify_detached_signature()?;
             let identity = Command::new("pacman")
                 .args(["-Qp", "--"])
                 .arg(archive.path())

@@ -1,0 +1,13 @@
+$ direct-production-path install fixture-app --yes
+case: signature-required
+Error: LocalFileSigLevel requires a sibling signature, which sealed descriptor handoff cannot supply; refusing AUR installation before building (pacman policy is unchanged)
+exit: 1
+mock privileged argv: []
+Traceback (most recent call last):
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 275, in <module>
+    for scenario in scenarios: run_case(scenario)
+                               ~~~~~~~~^^^^^^^^^^
+  File "/home/ravi/archon/scripts/repro-aur-install.py", line 169, in run_case
+    assert result.returncode == 0, 'install must succeed'
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: install must succeed

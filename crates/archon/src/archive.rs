@@ -1,54 +1,53 @@
-//! Immutable handoff from an untrusted build directory to pacman.
-//!
-//! Keep the sealed file open until pacman exits. Both the identity query and
-//! installation open this same snapshot through the parent's procfs descriptor;
-//! neither operation reopens the mutable build output. No sudo FD-preservation
-//! setting or writable root staging directory is needed.
+//! Immutable handoff from an untrusted build directory to the root-owned
+//! receiver. Native pacman verifies staged archives and adjacent signatures.
 
 use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::fs::FileExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-/// Descriptor paths cannot carry the sibling signature demanded by Required.
-/// Refuse before building rather than changing the user's pacman policy.
+/// Validate the administrator-installed helper before starting any AUR build.
 pub fn check_handoff_policy() -> Result<()> {
-    let output = Command::new("pacman-conf")
-        .arg("LocalFileSigLevel")
-        .output()
-        .context("cannot read LocalFileSigLevel with pacman-conf; refusing AUR archive handoff")?;
-    if !output.status.success() {
-        bail!(
-            "cannot read pacman LocalFileSigLevel: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let policy = String::from_utf8(output.stdout).context("invalid LocalFileSigLevel output")?;
-    if !policy
-        .lines()
-        .any(|line| matches!(line.trim(), "PackageOptional" | "PackageNever"))
-    {
-        bail!(
-            "LocalFileSigLevel requires a sibling signature, which sealed descriptor handoff cannot supply; refusing AUR installation before building (pacman policy is unchanged)"
-        );
-    }
-    Ok(())
+    crate::handoff::check_helper()
 }
 
 pub struct PackageArchive {
     source: PathBuf,
     snapshot: File,
+    signature: Option<File>,
 }
 
 impl PackageArchive {
     pub fn snapshot(source: &Path) -> Result<Self> {
         // Do not follow a symlink substituted after directory enumeration;
         // O_NONBLOCK avoids hanging on a substituted FIFO before fstat.
-        let mut input = OpenOptions::new()
+        let snapshot = Self::freeze(source, crate::handoff::MAX_PACKAGE_BYTES)?;
+        let mut signature = source.as_os_str().to_os_string();
+        signature.push(".sig");
+        let signature = PathBuf::from(signature);
+        let signature = match std::fs::symlink_metadata(&signature) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+            Ok(_) => Some(Self::freeze(
+                &signature,
+                crate::handoff::MAX_SIGNATURE_BYTES,
+            )?),
+        };
+        Ok(Self {
+            source: source.into(),
+            snapshot,
+            signature,
+        })
+    }
+
+    fn freeze(source: &Path, limit: u64) -> Result<File> {
+        let input = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(source)
@@ -68,8 +67,12 @@ impl PackageArchive {
             );
         }
         let mut snapshot = unsafe { File::from_raw_fd(fd) };
-        std::io::copy(&mut input, &mut snapshot)
+        let copied = std::io::copy(&mut input.take(limit + 1), &mut snapshot)
             .context("failed to copy built package into immutable snapshot")?;
+        anyhow::ensure!(
+            copied <= limit,
+            "archive/signature exceeds handoff size limit"
+        );
         snapshot.seek(SeekFrom::Start(0))?;
         let seals =
             libc::F_SEAL_WRITE | libc::F_SEAL_GROW | libc::F_SEAL_SHRINK | libc::F_SEAL_SEAL;
@@ -77,10 +80,7 @@ impl PackageArchive {
             return Err(std::io::Error::last_os_error())
                 .context("cannot seal package snapshot; refusing mutable archive handoff");
         }
-        Ok(Self {
-            source: source.into(),
-            snapshot,
-        })
+        Ok(snapshot)
     }
 
     pub fn path(&self) -> PathBuf {
@@ -91,42 +91,104 @@ impl PackageArchive {
         ))
     }
 
+    #[cfg(test)]
+    pub fn from_fixture(source: &Path, signature: Option<&Path>) -> Result<Self> {
+        Ok(Self {
+            source: source.to_owned(),
+            snapshot: Self::freeze(source, crate::handoff::MAX_PACKAGE_BYTES)?,
+            signature: signature
+                .map(|path| Self::freeze(path, crate::handoff::MAX_SIGNATURE_BYTES))
+                .transpose()?,
+        })
+    }
+
     pub fn source(&self) -> &Path {
         &self.source
     }
 
-    /// Procfs descriptor paths have no writable sibling for `<archive>.sig`.
-    /// Preserve signature checks explicitly instead of silently losing them
-    /// when LocalFileSigLevel is Optional. pacman-key requires a valid signature
-    /// from a fully/ultimately trusted key in pacman's system keyring.
-    /// Pacman's own policy is never relaxed: Required still fails closed if it
-    /// requires the sibling signature at installation time.
-    pub fn verify_detached_signature(&self) -> Result<()> {
-        let mut signature = self.source.as_os_str().to_os_string();
-        signature.push(".sig");
-        let signature = PathBuf::from(signature);
-        match std::fs::symlink_metadata(&signature) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error).context("failed to inspect package signature"),
-            Ok(_) => {}
-        }
-        let signature = Self::snapshot(&signature)?;
-        let status = Command::new("pacman-key")
-            .args(["--verify", "--"])
-            .arg(signature.path())
-            .arg(self.path())
-            .status()
-            .context(
-                "cannot verify detached package signature with pacman-key; refusing installation",
-            )?;
-        if !status.success() {
-            bail!(
-                "detached signature verification failed for {}; refusing installation",
-                self.source.display()
+    /// Serialize immutable snapshots; the helper supplies adjacent signatures
+    /// and native pacman performs the actual configured verification.
+    pub fn write_transaction(archives: &[Self], writer: &mut impl Write) -> Result<()> {
+        anyhow::ensure!(
+            !archives.is_empty() && archives.len() <= crate::handoff::MAX_PACKAGES as usize,
+            "invalid archive transaction count"
+        );
+        writer.write_all(crate::handoff::MAGIC)?;
+        writer.write_all(&(archives.len() as u32).to_le_bytes())?;
+        for archive in archives {
+            let name = archive
+                .source
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("invalid package filename")?;
+            anyhow::ensure!(
+                crate::handoff::valid_name(name),
+                "invalid package archive filename"
             );
+            writer.write_all(&(name.len() as u16).to_le_bytes())?;
+            writer.write_all(name.as_bytes())?;
+            write_file(&archive.snapshot, writer)?;
+            writer.write_all(&[u8::from(archive.signature.is_some())])?;
+            if let Some(signature) = &archive.signature {
+                write_file(signature, writer)?;
+            }
         }
+        writer.flush()?;
         Ok(())
     }
+}
+
+fn write_file(file: &File, writer: &mut impl Write) -> Result<()> {
+    let size = file.metadata()?.len();
+    writer.write_all(&size.to_le_bytes())?;
+    let mut offset = 0;
+    let mut buffer = [0; 65536];
+    while offset < size {
+        let count = file.read_at(&mut buffer[..(size - offset).min(65536) as usize], offset)?;
+        anyhow::ensure!(count > 0, "truncated sealed package snapshot");
+        writer.write_all(&buffer[..count])?;
+        offset += count as u64;
+    }
+    Ok(())
+}
+
+pub trait ArchiveInstaller {
+    fn preflight(&self) -> Result<()>;
+    fn install(&self, archives: &[PackageArchive]) -> Result<()>;
+}
+
+pub struct RootInstaller;
+impl ArchiveInstaller for RootInstaller {
+    fn preflight(&self) -> Result<()> {
+        check_handoff_policy()
+    }
+    fn install(&self, archives: &[PackageArchive]) -> Result<()> {
+        send_to_helper(archives)
+    }
+}
+
+/// Only callers that have passed the trusted-path preflight may use this.
+fn send_to_helper(archives: &[PackageArchive]) -> Result<()> {
+    let mut command = if unsafe { libc::geteuid() } == 0 {
+        Command::new(crate::handoff::HELPER)
+    } else {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["--", crate::handoff::HELPER]);
+        command
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("cannot launch administrator-installed package helper")?;
+    let mut stdin = child.stdin.take().context("helper stdin unavailable")?;
+    let written = PackageArchive::write_transaction(archives, &mut stdin);
+    drop(stdin);
+    written.context("failed to transmit package transaction to helper")?;
+    let status = child.wait()?;
+    if !status.success() {
+        bail!("package helper exited with {status}");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

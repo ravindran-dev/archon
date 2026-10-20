@@ -81,15 +81,23 @@ live cryptographic verification against the host system keyring is UNVERIFIED.
 The signature regression failed first when verification was absent:
 [before](audit/evidence/release-blockers/snapshot-signature-before.txt).
 
-`pacman-conf LocalFileSigLevel` is checked before AUR builds. Required sibling
-signatures are currently unsupported by descriptor handoff: Archon explicitly
-refuses before building and does not relax pacman's policy. The required-policy
-regression also failed first:
-[before](audit/evidence/release-blockers/snapshot-policy-before.txt).
-All 12 installation scenarios pass, including this early refusal and rejection
-of invalid signatures. Existing tests now check sealed descriptors plus exact
-payload identity and dependency/split transaction order, rather than expecting
-the former mutable filenames; no coverage was deleted or ignored.
+The former descriptor handoff could not preserve a sibling signature under
+`LocalFileSigLevel=Required`; the regression failed first:
+[before](audit/evidence/release-blockers/snapshot-policy-before.txt). The
+selected replacement is a fixed-path root-owned receiver. It accepts only
+bounded archive/signature bytes, stages them under `/var/lib/archon` with
+private permissions, and invokes `/usr/bin/pacman -U --needed --` with the
+original system configuration. It does not execute package data or change
+pacman policy. `archon setup-helper` performs a one-time explicit sudo copy;
+that privileged setup has not been run on this host. Hermetic protocol tests
+exercise signed staging, malformed/truncated inputs, traversal, cleanup, and
+permissions. Native required-policy verification and the actual helper-to-
+pacman transaction remain UNVERIFIED pending an Arch integration run.
+
+All direct install fixtures pass, including signed transaction staging,
+signature-required dispatch, native verifier failure propagation, archive
+replacement, split outputs, and dependency ordering. The native verifier is
+mocked in these tests; they do not prove actual pacman PGP behavior.
 
 `scripts/test-security-offline.sh` runs the actual PGP/archive module tests:
 6 passed, 0 failed, 0 ignored. It uses a separate temporary manifest with cached

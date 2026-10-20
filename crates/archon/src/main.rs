@@ -11,6 +11,7 @@ mod archive;
 mod color;
 mod commands;
 mod correction;
+mod handoff;
 mod pgp;
 mod search;
 mod spinner;
@@ -86,6 +87,9 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Install the root-owned receiver required for signed AUR package handoff.
+    /// This copies the companion helper to /usr/local/libexec using sudo.
+    SetupHelper,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -110,5 +114,17 @@ fn main() -> anyhow::Result<()> {
             commands::build::run(&commands::build::parse_dir(&dir), report)
         }
         Command::Search { term, all } => commands::search::run(&term, all),
+        Command::SetupHelper => {
+            let executable = std::env::current_exe()?;
+            let source = executable
+                .parent()
+                .context("cannot locate archon executable directory")?
+                .join("archon-install-helper");
+            handoff::install_helper(&source)?;
+            println!("Installed trusted package helper at {}", handoff::HELPER);
+            Ok(())
+        }
     }
 }
+
+use anyhow::Context;
