@@ -1,0 +1,28 @@
+name: Production release evidence gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      evidence_run_id:
+        description: Workflow run containing the production-vm-evidence artifact for this commit
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: production-vm-evidence
+          run-id: ${{ inputs.evidence_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/archon-release-evidence
+      - name: Require verified evidence for every advertised distro family
+        env:
+          EVIDENCE: ${{ runner.temp }}/archon-release-evidence/evidence.json
+        run: python3 scripts/check-release-evidence.py "$EVIDENCE"

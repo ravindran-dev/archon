@@ -36,6 +36,10 @@ clap = { workspace = true }
 libc = { workspace = true }
 env_logger = { workspace = true }
 indicatif = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tar = { workspace = true }

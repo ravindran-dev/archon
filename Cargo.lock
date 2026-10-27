@@ -101,13 +101,19 @@ dependencies = [
  "env_logger",
  "indicatif",
  "libc",
+ "serde",
+ "serde_json",
  "tar",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]
 name = "archon-distro"
 version = "0.2.1"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "archon-monitor"

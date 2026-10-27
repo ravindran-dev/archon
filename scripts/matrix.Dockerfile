@@ -14,7 +14,7 @@ RUN set -eu; \
     elif command -v apt-get >/dev/null; then \
         apt-get update && apt-get install -y sudo passwd ca-certificates; \
     elif command -v dnf >/dev/null; then \
-        dnf install -y sudo shadow-utils ca-certificates; \
+        dnf install -y sudo shadow-utils ca-certificates python3-libdnf5; \
     elif command -v zypper >/dev/null; then \
         zypper --non-interactive refresh && zypper --non-interactive install sudo shadow ca-certificates; \
     elif command -v apk >/dev/null; then \

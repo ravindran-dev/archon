@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "backend": "libdnf5",
+  "request": {"operation": "install", "packages": ["demo"]},
+  "changes": [
+    {
+      "action": "install",
+      "package": {"name": "demo", "version": "2:2.0-1", "architecture": "x86_64"},
+      "reason": "User", "repository": "fixture-repo",
+      "download_bytes": 1024, "install_bytes": 2048,
+      "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "replaces": [{"name": "old-demo", "version": "1.0-1", "architecture": "x86_64"}],
+      "replaced_by": []
+    },
+    {
+      "action": "replaced",
+      "package": {"name": "old-demo", "version": "1.0-1", "architecture": "x86_64"},
+      "reason": "User", "repository": "@System",
+      "download_bytes": 0, "install_bytes": 0, "checksum": null,
+      "replaces": [],
+      "replaced_by": [{"name": "demo", "version": "2:2.0-1", "architecture": "x86_64"}]
+    }
+  ],
+  "download_bytes": 1024, "install_bytes": 2048,
+  "system_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "policy_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "warnings": []
+}

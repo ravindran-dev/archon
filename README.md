@@ -7,7 +7,7 @@
 [![Audit](https://img.shields.io/badge/audit-incomplete-yellow)](AUDIT.md)
 [![Platform](https://img.shields.io/badge/platform-Linux-informational?logo=linux&logoColor=white)](#supported-distros)
 
-**A cross-distro package manager with a security-monitored, AUR-aware core for Arch Linux.**
+**One package-management interface for Linux, with native distro adapters and sandboxed AUR builds on Arch.**
 
 On Arch, archon resolves dependencies across the official repos and AUR,
 builds AUR packages in a bubblewrap sandbox, and installs the resulting
@@ -76,6 +76,15 @@ archon install google-chrome      # sandbox-build AUR package, then install via 
 sudo archon install spotify --report   # build under eBPF monitoring, install only if clean
 archon remove firefox             # pre-checked removal via pacman -Rs
 archon build ./path/to/pkgbuild   # sandbox-build a local PKGBUILD (never installs)
+archon capabilities              # show operations implemented for this host
+archon upgrade --dry-run         # preview the native upgrade command
+archon info firefox              # native package details
+archon list                      # installed packages
+# Fedora/openSUSE:
+archon list --json               # structured RPM inventory, including epoch/arch
+archon repos                     # native repository configuration
+# Fedora:
+archon check                     # native dependency consistency check
 ```
 
 Useful flags: `--dry-run` (plan only, no changes), `--yes` (skip archon's
@@ -101,6 +110,25 @@ Arch (it needs the PKGBUILD build-recipe model) and says so instead of
 silently ignoring the flag. Anything unlisted gets a clear error naming
 what was detected. Adding a backend is a small trait impl — see
 [docs/DESIGN.md](docs/DESIGN.md#cross-distro-support).
+
+Native lifecycle commands now include `upgrade`, `refresh`, `info`, `list`,
+`reinstall`, `repos`, `check`, `history`, and `provides`, with availability
+declared by each adapter. Fedora implements all nine plus structured RPM
+inventory. Arch rejects standalone `refresh`; its `upgrade` uses `pacman -Syu`
+and currently upgrades official packages only. Nix operations apply to user
+profiles/channels. Command previews do not resolve native transactions.
+Fedora rpm-ostree mutations require a dedicated adapter and are rejected by
+the DNF adapter. See [the capability matrix and development rules](docs/CROSS-DISTRO.md)
+for exact support and the roadmap toward deeper integration across families.
+
+Fedora also has an opt-in prepared transaction path using `python3-libdnf5`:
+`archon plan --native firefox` saves a dependency-resolved plan; review it with
+`archon transaction show ID` and execute it with `archon transaction apply ID`.
+It includes versions, dependencies, replacements, removals and archive sizes,
+refuses stale plans, and persists recovery checkpoints. Transaction commands
+support `--json`; interrupted commits require native inspection before retry.
+The bridge and supplied VM harness still require successful real Fedora runs.
+See [native transactions and release validation](docs/NATIVE-TRANSACTIONS.md).
 
 ## Security monitoring in action
 

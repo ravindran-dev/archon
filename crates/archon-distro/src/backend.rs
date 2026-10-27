@@ -1,16 +1,77 @@
-//! Native package-manager backends: pure argv construction, no execution —
-//! the same testing philosophy `archon_sandbox::SandboxPolicy::bwrap_args`
-//! uses: build the command, verify the command in a unit test, and let the
-//! `archon` CLI crate actually run it (with the same spinner/confirmation
-//! UX shell that wraps every side-effecting action archon takes).
+//! Native adapter contract. Distro-specific argv and policy live in separate
+//! modules; this module contains only shared types and compatibility tests.
 
-/// One distro's native package manager: enough surface for archon to
-/// install/remove/search without reimplementing dependency resolution —
-/// that's the native tool's job here, not archon's. archon's own
-/// dependency graph resolver, AUR client, and sandboxed/eBPF-monitored
-/// build pipeline stay Arch-specific; this trait exists for everything
-/// that isn't Arch.
+/// Inventory versions retain their native version semantics (including RPM EVR).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct InstalledPackage {
+    pub name: String,
+    pub version: String,
+    pub architecture: String,
+}
+
+/// Operations beyond the original install/remove/search API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation {
+    Upgrade,
+    Refresh,
+    Info,
+    List,
+    Reinstall,
+    Repositories,
+    Check,
+    History,
+    Provides,
+}
+
+impl Operation {
+    pub const ALL: [Self; 9] = [
+        Self::Upgrade,
+        Self::Refresh,
+        Self::Info,
+        Self::List,
+        Self::Reinstall,
+        Self::Repositories,
+        Self::Check,
+        Self::History,
+        Self::Provides,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Upgrade => "upgrade",
+            Self::Refresh => "refresh",
+            Self::Info => "info",
+            Self::List => "list",
+            Self::Reinstall => "reinstall",
+            Self::Repositories => "repos",
+            Self::Check => "check",
+            Self::History => "history",
+            Self::Provides => "provides",
+        }
+    }
+
+    pub fn mutates(self) -> bool {
+        matches!(self, Self::Upgrade | Self::Refresh | Self::Reinstall)
+    }
+
+    pub fn requires_packages(self) -> bool {
+        matches!(self, Self::Info | Self::Reinstall | Self::Provides)
+    }
+}
+
+/// Native package-management adapter. Each distro owns its commands,
+/// capabilities and host restrictions. Native engines remain authoritative
+/// for transaction solving; common CLI workflows do not contain native flags.
 pub trait Backend: std::fmt::Debug {
+    /// Optional native transaction engine. Other adapters remain explicitly unsupported.
+    fn transaction_engine(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn transaction_bridge(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Short, lowercase identifier used in messages ("pacman", "apt", "dnf").
     fn name(&self) -> &'static str;
 
@@ -36,6 +97,46 @@ pub trait Backend: std::fmt::Debug {
     /// of these native query tools already follows.
     fn is_installed_argv(&self, name: &str) -> Vec<String>;
 
+    /// Extended native operations. An adapter opts in explicitly; adding a
+    /// capability to one distro cannot silently change another adapter.
+    fn operation_argv(
+        &self,
+        _operation: Operation,
+        _names: &[String],
+        _assume_yes: bool,
+    ) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Optional machine-readable inventory, independently implemented by adapters.
+    fn inventory_argv(&self) -> Option<Vec<String>> {
+        None
+    }
+
+    fn parse_inventory(&self, _output: &str) -> Result<Vec<InstalledPackage>, String> {
+        Err(format!(
+            "{} has no structured inventory adapter",
+            self.name()
+        ))
+    }
+
+    fn operation_needs_root(&self, operation: Operation) -> bool {
+        operation.mutates() && self.needs_root()
+    }
+
+    fn scope(&self) -> &'static str {
+        "system packages"
+    }
+
+    fn operation_unavailable_reason(&self, _operation: Operation) -> Option<&'static str> {
+        None
+    }
+
+    /// Runtime host facts are supplied by orchestration, policy by the adapter.
+    fn mutation_restriction(&self, _ostree_booted: bool) -> Option<&'static str> {
+        None
+    }
+
     /// Whether install/remove must run under `sudo`. True for every
     /// system-wide package manager; `NixBackend` overrides it to false
     /// because `nix-env` installs into the invoking user's own profile —
@@ -54,278 +155,23 @@ fn argv(parts: &[&str], names: &[String]) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct PacmanBackend;
-
-impl Backend for PacmanBackend {
-    fn name(&self) -> &'static str {
-        "pacman"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["pacman", "-S", "--needed", "--noconfirm"]
-        } else {
-            &["pacman", "-S", "--needed"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["pacman", "-Rs", "--noconfirm"]
-        } else {
-            &["pacman", "-Rs"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["pacman".to_string(), "-Ss".to_string(), term.to_string()]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["pacman".to_string(), "-Q".to_string(), name.to_string()]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct AptBackend;
-
-impl Backend for AptBackend {
-    fn name(&self) -> &'static str {
-        "apt"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["apt", "install", "-y"]
-        } else {
-            &["apt", "install"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["apt", "remove", "-y"]
-        } else {
-            &["apt", "remove"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec![
-            "apt-cache".to_string(),
-            "search".to_string(),
-            term.to_string(),
-        ]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["dpkg".to_string(), "-s".to_string(), name.to_string()]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct DnfBackend;
-
-impl Backend for DnfBackend {
-    fn name(&self) -> &'static str {
-        "dnf"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["dnf", "install", "-y"]
-        } else {
-            &["dnf", "install"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["dnf", "remove", "-y"]
-        } else {
-            &["dnf", "remove"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["dnf".to_string(), "search".to_string(), term.to_string()]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["rpm".to_string(), "-q".to_string(), name.to_string()]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ZypperBackend;
-
-impl Backend for ZypperBackend {
-    fn name(&self) -> &'static str {
-        "zypper"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["zypper", "--non-interactive", "install"]
-        } else {
-            &["zypper", "install"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["zypper", "--non-interactive", "remove"]
-        } else {
-            &["zypper", "remove"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["zypper".to_string(), "search".to_string(), term.to_string()]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        // openSUSE is RPM-based, same query tool as Fedora.
-        vec!["rpm".to_string(), "-q".to_string(), name.to_string()]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ApkBackend;
-
-impl Backend for ApkBackend {
-    fn name(&self) -> &'static str {
-        "apk"
-    }
-    fn install_argv(&self, names: &[String], _assume_yes: bool) -> Vec<String> {
-        // apk is non-interactive by design — there's no prompt for
-        // `--yes` to skip, so the flag is accepted and simply moot here.
-        argv(&["apk", "add"], names)
-    }
-    fn remove_argv(&self, names: &[String], _assume_yes: bool) -> Vec<String> {
-        argv(&["apk", "del"], names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["apk".to_string(), "search".to_string(), term.to_string()]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec![
-            "apk".to_string(),
-            "info".to_string(),
-            "-e".to_string(),
-            name.to_string(),
-        ]
-    }
-}
-
-/// NixOS. Uses the classic `nix-env` interface rather than the newer `nix
-/// profile` commands deliberately: `nix profile` still requires the
-/// `nix-command`/`flakes` experimental features to be enabled in nix.conf,
-/// which a stock NixOS install doesn't guarantee, while `nix-env` works
-/// everywhere. The `nixos.` attribute prefix is the channel name every
-/// standard NixOS system has (this backend is only ever selected when
-/// /etc/os-release says ID=nixos, so `nixpkgs.` — the prefix non-NixOS nix
-/// installs use — would be the wrong guess here).
-#[derive(Debug, Clone, Copy)]
-pub struct NixBackend;
-
-impl Backend for NixBackend {
-    fn name(&self) -> &'static str {
-        "nix-env"
-    }
-    fn install_argv(&self, names: &[String], _assume_yes: bool) -> Vec<String> {
-        // nix-env never prompts, so assume_yes is moot (same as apk).
-        let mut out = vec!["nix-env".to_string(), "-iA".to_string()];
-        out.extend(names.iter().map(|n| format!("nixos.{n}")));
-        out
-    }
-    fn remove_argv(&self, names: &[String], _assume_yes: bool) -> Vec<String> {
-        // Removal goes by plain package name, not channel attribute.
-        argv(&["nix-env", "-e"], names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec!["nix-env".to_string(), "-qaP".to_string(), term.to_string()]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["nix-env".to_string(), "-q".to_string(), name.to_string()]
-    }
-    /// Per-user profile — see the trait method's doc comment for why sudo
-    /// here would be actively wrong, not just unnecessary.
-    fn needs_root(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct XbpsBackend;
-
-impl Backend for XbpsBackend {
-    fn name(&self) -> &'static str {
-        "xbps"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["xbps-install", "-Sy"]
-        } else {
-            &["xbps-install", "-S"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        // -R removes now-orphaned dependencies too, matching what the
-        // pacman backend's -Rs does on Arch.
-        let base: &[&str] = if assume_yes {
-            &["xbps-remove", "-Ry"]
-        } else {
-            &["xbps-remove", "-R"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec![
-            "xbps-query".to_string(),
-            "-Rs".to_string(),
-            term.to_string(),
-        ]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        vec!["xbps-query".to_string(), name.to_string()]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EmergeBackend;
-
-impl Backend for EmergeBackend {
-    fn name(&self) -> &'static str {
-        "emerge"
-    }
-    fn install_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        // emerge doesn't prompt by default; --ask *adds* the confirmation.
-        // So archon's "no --yes given" maps to --ask (you get to review the
-        // transaction) and --yes maps to plain emerge — inverted flag,
-        // same user-visible semantics as every other backend.
-        let base: &[&str] = if assume_yes {
-            &["emerge"]
-        } else {
-            &["emerge", "--ask"]
-        };
-        argv(base, names)
-    }
-    fn remove_argv(&self, names: &[String], assume_yes: bool) -> Vec<String> {
-        let base: &[&str] = if assume_yes {
-            &["emerge", "--depclean"]
-        } else {
-            &["emerge", "--ask", "--depclean"]
-        };
-        argv(base, names)
-    }
-    fn search_argv(&self, term: &str) -> Vec<String> {
-        vec![
-            "emerge".to_string(),
-            "--search".to_string(),
-            term.to_string(),
-        ]
-    }
-    fn is_installed_argv(&self, name: &str) -> Vec<String> {
-        // qlist ships in portage-utils, present on effectively every
-        // Gentoo system (portage itself recommends it).
-        vec!["qlist".to_string(), "-I".to_string(), name.to_string()]
-    }
-}
+mod arch;
+pub use arch::PacmanBackend;
+mod debian;
+pub use debian::AptBackend;
+mod fedora;
+pub use fedora::DnfBackend;
+mod suse;
+pub use suse::ZypperBackend;
+mod alpine;
+pub use alpine::ApkBackend;
+mod nix;
+pub use nix::NixBackend;
+mod void;
+pub use void::XbpsBackend;
+mod gentoo;
+pub use gentoo::EmergeBackend;
+mod rpm;
 
 #[cfg(test)]
 mod tests {

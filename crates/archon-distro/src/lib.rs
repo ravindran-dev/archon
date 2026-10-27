@@ -1,21 +1,16 @@
-//! Distro detection and native-package-manager backends, for archon's
-//! non-Arch install/remove/search paths.
+//! Distro detection and isolated native adapters for a common package lifecycle.
 //!
-//! archon's own dependency resolver, AUR client, and sandboxed, eBPF-
-//! monitored build pipeline are Arch-specific by design — pacman's sync
-//! database format, the AUR, and PKGBUILD/makepkg don't have equivalents
-//! on other distros, and reimplementing full dependency resolution against
-//! every distro's own package database format (dpkg's status file, the RPM
-//! database, ...) would be its own multi-month project per format. Instead,
-//! off Arch, archon detects the host distro and delegates resolution and
-//! installation entirely to its native package manager — archon's value
-//! there is detection and a consistent CLI, not reinventing apt or dnf.
+//! Each adapter owns its commands, privilege policy, capabilities and optional
+//! structured inventory. Native package engines remain authoritative for their
+//! transactions. Arch's AUR/build pipeline is an additional adapter-specific
+//! capability, not a prerequisite for other distributions to gain deep support.
 
 mod backend;
+pub mod transaction;
 
 pub use backend::{
-    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, NixBackend, PacmanBackend,
-    XbpsBackend, ZypperBackend,
+    ApkBackend, AptBackend, Backend, DnfBackend, EmergeBackend, InstalledPackage, NixBackend,
+    Operation, PacmanBackend, XbpsBackend, ZypperBackend,
 };
 
 use std::path::{Path, PathBuf};

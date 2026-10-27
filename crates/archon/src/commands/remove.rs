@@ -37,6 +37,7 @@ fn run_foreign_distro(
              Arch (pacman), Debian/Ubuntu (apt), Fedora/RHEL (dnf), openSUSE (zypper), Alpine (apk), NixOS (nix-env), Void (xbps), and Gentoo (emerge)."
         );
     };
+    super::native::ensure_mutable_host(distro)?;
     let argv = backend.remove_argv(packages, yes);
     println!(
         "{}",

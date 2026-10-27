@@ -1,0 +1,39 @@
+name: Adapter regression checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: python3 scripts/test-fedora-transaction.py
+      - run: python3 scripts/test-release-evidence.py
+      # The real makepkg/bwrap build belongs to privileged VM validation.
+      # All fixture-based adapters, HTTP mocks and helper tests run here.
+      - run: cargo test --locked --workspace -- --skip build_command_succeeds_on_benign_demo_package
+
+  native-containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      # Native transactions occur only in disposable containers, never on the runner.
+      - run: scripts/matrix.sh --install
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-distro-evidence
+          path: audit/evidence/matrix/

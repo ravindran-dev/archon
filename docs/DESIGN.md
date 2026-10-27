@@ -8,6 +8,13 @@ Arch system).
 
 ## Cross-distro support
 
+The current extension contract and capability matrix are documented in
+[CROSS-DISTRO.md](CROSS-DISTRO.md). Each family has a separate adapter module.
+The shared lifecycle dispatcher handles capabilities, execution and confirmation;
+native flags, privilege rules, scope and deployment restrictions belong to
+adapters. All families gain package info/listing and upgrade operations; Fedora
+also has RPM inventory and additional native maintenance queries.
+
 `archon-distro` reads `/etc/os-release` (`ID`, falling back to `ID_LIKE`
 for derivatives — Manjaro, Pop!_OS, Rocky, etc.) once at the top of
 `install`/`remove`/`search`, before anything else runs:
@@ -39,11 +46,9 @@ for derivatives — Manjaro, Pop!_OS, Rocky, etc.) once at the top of
 - **Anything else** (Slackware, etc.): a clear error naming what was
   actually detected, rather than a confusing failure three layers down.
 
-Off Arch, archon does not resolve dependencies itself — the native tool
-does, exactly as if you'd invoked it directly. archon's role there is
-detection, argv construction, and one consistent CLI (`archon install X`
-regardless of which machine you're on), not reimplementing apt or dnf.
-Two things that follow from that, deliberately:
+Native tools remain authoritative for dependency resolution off Arch. Archon
+provides the common lifecycle interface and grows structured native integration
+inside each adapter. The existing install path has these boundaries:
 
 - There's no archon-computed plan to confirm off Arch, so unlike the Arch
   path there's no separate archon-side `[y/N]` prompt — the native tool's
@@ -52,15 +57,15 @@ Two things that follow from that, deliberately:
   own assume-yes flag (`--noconfirm` / `-y`).
 - `--report` (sandboxed, eBPF-monitored builds) needs a PKGBUILD-equivalent
   build recipe, which only Arch/AUR has today. Passing it off Arch prints
-  a note and falls back to a normal install rather than silently ignoring
-  the flag or hard-failing.
+  an error and refuses installation; a requested security control is never
+  silently discarded.
 
-Adding a new distro backend means implementing the small
-`archon_distro::Backend` trait (`crates/archon-distro/src/backend.rs`) —
-four required methods, all pure argv construction, no execution, plus an
-optional `needs_root()` override (defaults to true; only nix-env needs
-false) — and recognizing the distro's `ID`/`ID_LIKE` in
-`Distro::from_os_release` (`crates/archon-distro/src/lib.rs`).
+Adding a distro means implementing `archon_distro::Backend` in a dedicated
+module, declaring its supported operations, privilege rules and optional
+structured inventory, and recognizing its `ID`/`ID_LIKE` in detection. Defaults
+for new capabilities are unsupported, so an extension does not silently opt in
+other adapters. The original install/remove/search query methods remain
+compatible. See CROSS-DISTRO.md for the regression contract.
 
 ## Architecture
 

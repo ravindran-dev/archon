@@ -1,4 +1,6 @@
 /target
+__pycache__/
+*.pyc
 crates/archon-monitor-ebpf/target
 **/*.rs.bk
 *.pkg.tar.zst

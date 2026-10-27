@@ -119,6 +119,7 @@ fn run_foreign_distro(
              crates/archon-distro/src/backend.rs)."
         );
     };
+    super::native::ensure_mutable_host(distro)?;
     let argv = backend.install_argv(packages, yes);
     println!(
         "{}",

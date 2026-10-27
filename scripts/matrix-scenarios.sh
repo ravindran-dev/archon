@@ -8,6 +8,11 @@ archon --help
 archon install --help
 archon remove --help
 archon build --help
+archon capabilities
+# Lifecycle previews must work with the real distro ID and execute no mutation.
+archon upgrade --dry-run --yes
+archon info jq --dry-run
+archon list --dry-run
 case "$(. /etc/os-release; printf '%s' "$ID")" in
     arch) expected='pacman' ;;
     ubuntu|debian) expected='apt' ;;
@@ -40,6 +45,34 @@ if [ "${1:-smoke}" = install ]; then
     # user with container-local sudo. No host mounts or privileged mode.
     printf 'y\n' | archon install jq --yes
     jq --version
+    archon info jq
+    archon list > /tmp/installed
+    grep -F jq /tmp/installed
+    if [ "$expected" = dnf ] || [ "$expected" = zypper ]; then
+        # Exercise the real RPM query format, including epoch and architecture.
+        archon list --json > /tmp/inventory.json
+        grep -F '"name": "jq"' /tmp/inventory.json
+    fi
+    if [ "$expected" = dnf ]; then
+        # Resolve through the real DNF5 bindings, then revalidate and execute
+        # that exact transaction in this disposable container.
+        archon transaction plan reinstall jq --json > /tmp/native-plan.jsonl
+        python3 - /tmp/native-plan.jsonl > /tmp/native-id <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1])]
+transaction = next(event['transaction'] for event in events if event['event'] == 'plan')
+assert transaction['plan']['backend'] == 'libdnf5'
+assert any(change['package']['name'] == 'jq' for change in transaction['plan']['changes'])
+assert transaction['plan']['download_bytes'] > 0
+print(transaction['id'])
+PY
+        native_id=$(cat /tmp/native-id)
+        archon transaction apply "$native_id" --yes --json
+        archon transaction show "$native_id" --json
+        if archon transaction apply "$native_id" --yes --json; then
+            echo 'FAIL: completed native transaction was replayed'; exit 1
+        fi
+    fi
     printf 'y\n' | archon remove jq --yes
     if command -v jq >/dev/null 2>&1; then
         echo 'FAIL: jq is still installed after removal'; exit 1
