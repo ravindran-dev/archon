@@ -103,6 +103,13 @@ pub fn inventory() -> Result<()> {
 
 pub fn capabilities() -> Result<()> {
     let distro = Distro::detect();
+    if distro.to_string().starts_with("ArkaOS") {
+        println!(
+            "{}",
+            serde_json::json!({"backend":"arkaos-image", "live_mutations":"unsupported", "image_planning":"unsupported", "service":"org.arka.Archon1"})
+        );
+        return Ok(());
+    }
     let backend = backend(&distro)?;
     println!("Distro: {distro}\nBackend: {}", backend.name());
     println!("Scope: {}", backend.scope());
