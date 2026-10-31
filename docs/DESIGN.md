@@ -282,10 +282,19 @@ purely doc/metadata.
    a `build()` step attempt a `curl` and observing `Could not resolve
    host`.
 
-Both stages pass `--nodeps`: archon's resolver already routed
-`depends`/`makedepends` through `pacman -S` before the sandbox starts, so
-nothing inside needs to invoke pacman or touch the system package
-database.
+Both stages retain makepkg's dependency checks. Archon's resolver installs
+runtime, build and check dependencies before the sandbox starts; makepkg then
+checks the actual recipe against the installed packages before doing work.
+Neither stage passes `--syncdeps`, so builds cannot install packages from
+inside the sandbox. Installation first runs `pacman -Syu` after confirmation,
+reloads metadata without disk caches, and resolves the request again before
+installing official dependencies and starting AUR builds. A changed plan is
+shown for confirmation. `--dry-run` uses local metadata without refreshing.
+
+Build output is drained incrementally into a bounded 256 KiB tail. The stage
+bar shows elapsed time, the latest output, output volume and time since the
+last output; it does not estimate a compiler percentage. Both ordinary and
+monitored builds emit a heartbeat every 30 seconds when stderr is redirected.
 
 ### Mount ordering bug (found via live testing)
 

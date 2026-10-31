@@ -2,7 +2,7 @@ use archon_types::PackageMeta;
 
 /// One resolved package plus why it's in the plan (targets vs pulled-in
 /// dependencies are displayed differently, like pacman does).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedPackage {
     pub meta: PackageMeta,
     /// Empty for explicit targets; otherwise the packages that pulled
@@ -12,7 +12,7 @@ pub struct PlannedPackage {
 
 /// The resolver's output: everything needed to show the user a complete,
 /// truthful "this is what will happen" screen before anything runs.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InstallPlan {
     /// Official packages, install order. Handed to `pacman -S --needed`
     /// in one shot (pacman re-verifies; we never bypass it).

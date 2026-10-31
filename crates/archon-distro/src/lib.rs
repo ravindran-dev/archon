@@ -6,6 +6,7 @@
 //! capability, not a prerequisite for other distributions to gain deep support.
 
 mod backend;
+pub mod image;
 pub mod transaction;
 
 pub use backend::{
@@ -41,6 +42,9 @@ impl Distro {
         let path = std::env::var_os("ARCHON_OS_RELEASE")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/etc/os-release"));
+        if path == Path::new("/etc/os-release") && Path::new("/usr/lib/arkaos-release").exists() {
+            return Distro::Unknown("ArkaOS (image backend unavailable)".into());
+        }
         Self::detect_at(&path)
     }
 
@@ -62,6 +66,13 @@ impl Distro {
     /// same way as upstream.
     fn from_os_release(contents: &str) -> Self {
         let fields = parse_os_release(contents);
+        // ArkaOS keeps Fedora's ID for compatibility. Until an image backend
+        // is validated, fail closed instead of exposing live DNF mutations.
+        if fields.get("NAME").is_some_and(|name| name == "ArkaOS")
+            || fields.get("ID").is_some_and(|id| id == "arkaos")
+        {
+            return Distro::Unknown("ArkaOS (image backend unavailable)".into());
+        }
         let id = fields.get("ID").cloned().unwrap_or_default();
         let id_like = fields.get("ID_LIKE").cloned().unwrap_or_default();
         // A recognized ID is authoritative. For derivatives, ID_LIKE is
@@ -145,6 +156,19 @@ fn parse_os_release(contents: &str) -> std::collections::HashMap<String, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arkaos_never_selects_live_fedora_backend() {
+        for release in [
+            "ID=fedora\nNAME=\"ArkaOS\"\n",
+            "ID=arkaos\nID_LIKE=fedora\n",
+        ] {
+            let distro = Distro::from_os_release(release);
+            assert!(distro.backend().is_none());
+            assert!(!distro.is_arch());
+            assert!(distro.to_string().contains("image backend unavailable"));
+        }
+    }
 
     #[test]
     fn recognized_id_precedes_id_like() {

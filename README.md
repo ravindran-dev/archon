@@ -90,6 +90,24 @@ archon check                     # native dependency consistency check
 Useful flags: `--dry-run` (plan only, no changes), `--yes` (skip archon's
 prompt), `--all` (search: show every match instead of the top 15).
 
+On Arch, installation first previews the locally cached dependency plan. After
+confirmation, Archon runs `sudo pacman -Syu` to refresh repositories and complete
+a full system upgrade, then reloads repository and installed-package metadata
+and resolves again. Pacman retains its own confirmation prompt. A changed plan
+is shown for confirmation before installing the requested packages. A failed
+upgrade stops installation before AUR builds; `--dry-run` never refreshes or
+upgrades anything. This avoids requesting obsolete package files from mirrors
+using stale databases and avoids a standalone `pacman -Sy` partial upgrade.
+Persistent mirror 404s may still require checking mirror synchronization or
+`sudo pacman -Syyu`.
+
+AUR fetch/build stages show a two-stage progress bar, elapsed time, output volume,
+the latest build output and seconds since the last output. Stage counts are not
+a compilation percentage: compilers can spend time working silently. Redirected
+build output gets a heartbeat every 30 seconds. Failed stages print the last
+256 KiB of output, and makepkg's own dependency checks remain enabled. AUR RPC
+requests have a 10-second connection timeout and 30-second total timeout.
+
 ## Supported distros
 
 | Family | Detected via | Delegates to |

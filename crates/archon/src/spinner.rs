@@ -26,9 +26,9 @@ impl Spinner {
         };
         let bar = ProgressBar::with_draw_target(None, target);
         let template = if std::env::var_os("NO_COLOR").is_some() {
-            "{spinner} {msg}"
+            "{spinner} [{elapsed_precise}] {msg}"
         } else {
-            "{spinner:.cyan} {msg}"
+            "{spinner:.cyan} [{elapsed_precise}] {msg}"
         };
         bar.set_style(
             ProgressStyle::with_template(template)
@@ -38,6 +38,25 @@ impl Spinner {
         bar.set_message(label.into());
         bar.enable_steady_tick(Duration::from_millis(100));
         Self { bar }
+    }
+
+    /// Two real makepkg stages; compilation itself has no universal percent.
+    pub fn build(label: impl Into<String>, completed_stages: u64) -> Self {
+        let spinner = Self::start(label);
+        spinner.bar.set_length(2);
+        spinner.bar.set_position(completed_stages);
+        spinner.bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner} [{elapsed_precise}] [{bar:16}] {pos}/{len} stages · {msg}",
+            )
+            .expect("static build template is valid")
+            .tick_strings(SPINNER_FRAMES),
+        );
+        spinner
+    }
+
+    pub fn set_message(&self, message: impl Into<String>) {
+        self.bar.set_message(message.into());
     }
 
     /// Stops the spinner and prints a green checkmark line in its place.

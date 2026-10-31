@@ -125,16 +125,16 @@ impl Cache {
                 return Ok(matches);
             }
 
-            for name in &names {
-                let key = (tier, name.clone());
-                let no_exact = self.exact.get(&key).is_none_or(Vec::is_empty);
-                if (no_exact || name == &dep.name) && !self.provides.contains_key(&key) {
-                    let candidates = provider.find_providers(name)?;
-                    for candidate in &candidates {
-                        validate(candidate, resolver.backend)?;
-                    }
-                    self.provides.insert(key, candidates);
+            // Provider searches are individual network requests on the AUR.
+            // Only search the dependency being selected; speculative searches
+            // for the whole frontier delayed exact-name matches needlessly.
+            let key = (tier, dep.name.clone());
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.provides.entry(key) {
+                let candidates = provider.find_providers(&dep.name)?;
+                for candidate in &candidates {
+                    validate(candidate, resolver.backend)?;
                 }
+                entry.insert(candidates);
             }
             for meta in self
                 .provides
