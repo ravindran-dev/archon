@@ -105,6 +105,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Update Archon itself from GitHub main (requires Cargo; alias: update).
+    #[command(visible_alias = "update")]
+    SelfUpdate {
+        /// Cargo installation root; defaults to the running executable's root.
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        /// Show the update command without fetching, building or installing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Update without the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Prepare, execute and recover native transactions using durable checkpoints.
     Transaction {
         #[command(subcommand)]
@@ -280,6 +293,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             TransactionCommand::Show { id, json } => commands::transaction::show(&id, json),
             TransactionCommand::Recover { id, json } => commands::transaction::recover(&id, json),
         },
+        Command::SelfUpdate { root, dry_run, yes } => {
+            commands::self_update::run(root, dry_run, yes)
+        }
         Command::Upgrade(options) => {
             commands::native::run(Operation::Upgrade, &[], options.dry_run, options.yes)
         }

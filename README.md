@@ -66,6 +66,21 @@ cd archon
 cargo install --path crates/archon --locked
 ```
 
+To update Archon itself from the latest GitHub `main` branch:
+
+```sh
+archon self-update               # also available as: archon update
+archon self-update --dry-run     # preview without fetching or changing files
+```
+
+This requires Cargo/Rust, shows Git fetch and compiler output, and updates both
+`archon` and `archon-install-helper` in the running executable's installation
+root (for example `~/.local` or `~/.cargo`). Use `--root ~/.local` to choose a
+root explicitly, or `--yes` to skip confirmation. Run it as your normal user.
+The update builds GitHub source, including changes not yet released on crates.io.
+If you use the privileged AUR helper, run `archon setup-helper` afterward to
+refresh its trusted copy. `archon upgrade` continues to upgrade system packages.
+
 ## Quick start
 
 ```sh

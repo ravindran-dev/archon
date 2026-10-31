@@ -1087,3 +1087,67 @@ elif sys.argv[1:4] != ['pacman', '-S', '--needed']:
     );
     drop(old);
 }
+
+#[test]
+fn self_update_fetches_main_into_selected_root_and_propagates_failures() {
+    use std::os::unix::fs::PermissionsExt;
+    let tools = tempfile::tempdir().unwrap();
+    let cargo = tools.path().join("cargo");
+    let log = tools.path().join("arguments.json");
+    std::fs::write(
+        &cargo,
+        r#"#!/usr/bin/python3
+import json, os, sys
+with open(os.environ['UPDATE_ARGS'], 'w') as f: json.dump(sys.argv[1:], f)
+sys.exit(int(os.environ.get('UPDATE_FAIL', '0')))
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = tools.path().to_string_lossy().into_owned();
+    let log_path = log.to_string_lossy().into_owned();
+    let root = tools
+        .path()
+        .join("install root with spaces")
+        .to_string_lossy()
+        .into_owned();
+    let env = [("PATH", path.as_str()), ("UPDATE_ARGS", log_path.as_str())];
+    let dry = run_archon(&["update", "--root", &root, "--dry-run"], &env);
+    assert!(dry.status.success(), "{}", dry.stderr);
+    assert!(dry.stdout.contains("--branch main"));
+    assert!(!log.exists());
+    let cancelled = run_archon(&["self-update", "--root", &root], &env);
+    assert!(cancelled.status.success());
+    assert!(cancelled.stdout.contains("cancelled"));
+    assert!(!log.exists());
+    let updated = run_archon(&["update", "--root", &root, "--yes"], &env);
+    assert!(updated.status.success(), "{}", updated.stderr);
+    let args: Vec<String> = serde_json::from_slice(&std::fs::read(&log).unwrap()).unwrap();
+    assert_eq!(
+        args,
+        [
+            "install",
+            "--git",
+            "https://github.com/ravindran-dev/archon.git",
+            "--branch",
+            "main",
+            "--locked",
+            "--force",
+            "--bins",
+            "--root",
+            &root,
+            "archon-cli"
+        ]
+    );
+    assert!(updated.stdout.contains("setup-helper"));
+    let mut fail_env = env.to_vec();
+    fail_env.push(("UPDATE_FAIL", "7"));
+    let failed = run_archon(&["self-update", "--root", &root, "--yes"], &fail_env);
+    assert!(!failed.status.success());
+    assert!(
+        failed.stderr.contains("self-update failed"),
+        "{}",
+        failed.stderr
+    );
+    assert!(!failed.stdout.contains("Archon updated in"));
+}
