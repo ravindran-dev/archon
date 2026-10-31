@@ -40,6 +40,8 @@ impl AurClient {
     pub fn new(base_url: impl Into<String>) -> Result<Self, AurError> {
         Ok(Self {
             http: reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
                 .user_agent(concat!("archon/", env!("CARGO_PKG_VERSION")))
                 .build()?,
             base_url: base_url.into(),

@@ -402,6 +402,47 @@ mod tests {
     }
 
     #[test]
+    fn provider_search_only_visits_dependencies_still_needed() {
+        use std::cell::RefCell;
+        struct CountingProvider {
+            inner: MockProvider,
+            searches: RefCell<Vec<String>>,
+        }
+        impl PackageProvider for CountingProvider {
+            fn label(&self) -> &str {
+                "counting"
+            }
+            fn get(&self, names: &[String]) -> Result<Vec<PackageMeta>, ProviderError> {
+                self.inner.get(names)
+            }
+            fn find_providers(&self, name: &str) -> Result<Vec<PackageMeta>, ProviderError> {
+                self.searches.borrow_mut().push(name.to_string());
+                self.inner.find_providers(name)
+            }
+        }
+        let provider = CountingProvider {
+            inner: MockProvider::aur(vec![
+                pkg(true, "app", "1", &["virtual-a", "virtual-b"], &[], &[], &[]),
+                pkg(
+                    true,
+                    "both-libs",
+                    "1",
+                    &[],
+                    &[],
+                    &[],
+                    &["virtual-a", "virtual-b"],
+                ),
+            ]),
+            searches: RefCell::new(Vec::new()),
+        };
+        let plan = Resolver::new(vec![&provider])
+            .resolve(&["app".into()])
+            .unwrap();
+        assert_eq!(plan.aur.len(), 2);
+        assert_eq!(*provider.searches.borrow(), ["virtual-a"]);
+    }
+
+    #[test]
     fn aur_alternative_is_built_before_its_dependent() {
         let mut scanner = pkg(true, "a-scanner", "1", &[], &[], &[], &[]);
         let mut dependency = Dependency::parse("missing-library").unwrap();

@@ -18,9 +18,9 @@ impl BuildStage {
     fn makepkg_args(self) -> &'static [&'static str] {
         match self {
             // Download + extract + run prepare(); stop before build().
-            BuildStage::Fetch => &["--nobuild", "--nodeps", "--noconfirm"],
+            BuildStage::Fetch => &["--nobuild", "--noconfirm"],
             // Reuse the already-extracted $srcdir; run build() + package().
-            BuildStage::Build => &["--noextract", "--nodeps", "--noconfirm", "--force"],
+            BuildStage::Build => &["--noextract", "--noconfirm", "--force"],
         }
     }
 
@@ -304,7 +304,7 @@ mod tests {
     fn fetch_stage_flags() {
         assert_eq!(
             BuildStage::Fetch.makepkg_args(),
-            &["--nobuild", "--nodeps", "--noconfirm"]
+            &["--nobuild", "--noconfirm"]
         );
         assert!(BuildStage::Fetch.allow_network());
     }
@@ -313,7 +313,7 @@ mod tests {
     fn build_stage_flags() {
         assert_eq!(
             BuildStage::Build.makepkg_args(),
-            &["--noextract", "--nodeps", "--noconfirm", "--force"]
+            &["--noextract", "--noconfirm", "--force"]
         );
         assert!(!BuildStage::Build.allow_network());
     }

@@ -975,3 +975,115 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
         }
     }
 }
+
+#[test]
+fn install_refreshes_and_rechecks_before_installing_and_stops_on_sync_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let (old, sync) = fixture_sync_dir(&[
+        FixturePkg {
+            name: "app",
+            version: "1-1",
+            depends: &["oldlib"],
+        },
+        FixturePkg {
+            name: "oldlib",
+            version: "1-1",
+            depends: &[],
+        },
+    ]);
+    let (_new, fresh) = fixture_sync_dir(&[
+        FixturePkg {
+            name: "app",
+            version: "2-1",
+            depends: &["newlib"],
+        },
+        FixturePkg {
+            name: "newlib",
+            version: "1-1",
+            depends: &[],
+        },
+    ]);
+    let tools = tempfile::tempdir().unwrap();
+    let log = tools.path().join("calls");
+    let sudo = tools.path().join("sudo");
+    std::fs::write(&sudo, r#"#!/usr/bin/python3
+import os, sys, shutil
+with open(os.environ['TEST_CALLS'], 'a') as f: f.write(' '.join(sys.argv[1:]) + '\n')
+if sys.argv[1:] == ['pacman', '-Syu']:
+    if os.environ.get('TEST_SYNC_FAIL') == '1': sys.exit(9)
+    shutil.copyfile(os.environ['TEST_FRESH_DB'], os.path.join(os.environ['ARCHON_SYNC_DIR'], 'core.db'))
+elif sys.argv[1:4] != ['pacman', '-S', '--needed']:
+    sys.exit('unexpected privileged command')
+"#).unwrap();
+    std::fs::set_permissions(&sudo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (_cache, cache) = empty_cache_dir();
+    let (_local, local) = empty_local_dir();
+    let sync = sync.to_string_lossy().into_owned();
+    let fresh = fresh.join("core.db").to_string_lossy().into_owned();
+    let path = tools.path().to_string_lossy().into_owned();
+    let calls = log.to_string_lossy().into_owned();
+    let cache = cache.to_string_lossy().into_owned();
+    let local = local.to_string_lossy().into_owned();
+    let env = [
+        ("PATH", path.as_str()),
+        ("TEST_CALLS", calls.as_str()),
+        ("TEST_FRESH_DB", fresh.as_str()),
+        ("ARCHON_SYNC_DIR", sync.as_str()),
+        ("ARCHON_LOCAL_DIR", local.as_str()),
+        ("ARCHON_CACHE_DIR", cache.as_str()),
+        ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+    ];
+    let dry = run_archon(&["install", "app", "--dry-run"], &env);
+    assert!(dry.status.success(), "{}", dry.stderr);
+    assert!(!log.exists());
+    let mut fail_env = env.to_vec();
+    fail_env.push(("TEST_SYNC_FAIL", "1"));
+    let failed = run_archon(&["install", "app", "--yes"], &fail_env);
+    assert!(!failed.status.success());
+    assert!(
+        failed.stderr.contains("system upgrade failed"),
+        "{}",
+        failed.stderr
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "pacman -Syu\n");
+    std::fs::write(&log, "").unwrap();
+    let cancelled = common::run_archon_interactive(&["install", "app"], &env, "y\nn\n");
+    assert!(cancelled.status.success(), "{}", cancelled.stderr);
+    assert!(
+        cancelled
+            .stdout
+            .contains("system upgrade has already completed")
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "pacman -Syu\n");
+    // Restore the old snapshot to exercise the success path independently.
+    let (_reset, reset) = fixture_sync_dir(&[
+        FixturePkg {
+            name: "app",
+            version: "1-1",
+            depends: &["oldlib"],
+        },
+        FixturePkg {
+            name: "oldlib",
+            version: "1-1",
+            depends: &[],
+        },
+    ]);
+    std::fs::copy(
+        reset.join("core.db"),
+        std::path::Path::new(&sync).join("core.db"),
+    )
+    .unwrap();
+    std::fs::write(&log, "").unwrap();
+    let installed = run_archon(&["install", "app", "--yes"], &env);
+    assert!(installed.status.success(), "{}", installed.stderr);
+    assert!(
+        installed.stdout.contains("plan changed"),
+        "{}",
+        installed.stdout
+    );
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "pacman -Syu\npacman -S --needed app newlib\n"
+    );
+    drop(old);
+}

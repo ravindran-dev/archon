@@ -259,9 +259,10 @@ pub fn audit_unmonitored_install() -> Result<()> {
                 f'#[path = {json.dumps(str(src / "handoff.rs"))}] mod handoff;\nmod commands {{\n'
                 f'#[path = {json.dumps(str(directory / "install.rs"))}] pub mod install;\n'
                 f'#[path = {json.dumps(str(src / "commands/subprocess.rs"))}] pub mod subprocess;\n'
+                f'#[path = {json.dumps(str(src / "commands/native.rs"))}] pub mod native;\n'
                 '}\nfn main() -> anyhow::Result<()> { commands::install::audit_unmonitored_install() }\n')
     (directory / 'main.rs').write_text(modules)
-    deps = ROOT / 'target/debug/deps'
+    deps = Path(os.environ.get('ARCHON_AUDIT_DEPS', ROOT / 'target/debug/deps'))
     manifest = tomllib.loads((ROOT / 'crates/archon/Cargo.toml').read_text())
     output = directory / 'direct-install'
     command = ['rustc', '--edition=2024', '--cfg', 'test', '-Adead_code', str(directory / 'main.rs'),

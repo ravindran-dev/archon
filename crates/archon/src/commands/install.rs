@@ -15,6 +15,7 @@
 //!    in build order, with versions and what pulled each one in.
 //! 4. `--dry-run` stops here — guaranteed no side effects past this point.
 //!    Otherwise prompt `[y/N]` (unless `--yes`), then:
+//!    - refresh/upgrade with `sudo pacman -Syu`, reload metadata and resolve again
 //!    - official: `sudo pacman -S --needed <pkgs>` (pacman owns its own
 //!      confirmation and privilege handling from here)
 //!    - AUR: `git clone` each package's AUR repo, then build it inside the
@@ -204,7 +205,7 @@ fn run_with_history(
     .with_context(|| {
         format!(
             "failed to load official repo databases from {sync_dir} \
-                 (run `sudo pacman -Sy` if you've never synced)"
+                 (run `sudo pacman -Syu` if you've never synced)"
         )
     }) {
         Ok(v) => v,
@@ -213,8 +214,8 @@ fn run_with_history(
             return Err(e);
         }
     };
-    let aur = AurClient::new(aur_url())?;
-    let local_db = load_local_db();
+    let mut aur = AurClient::new(aur_url())?;
+    let mut local_db = load_local_db();
     let installed_names: std::collections::HashSet<String> = local_db
         .as_ref()
         .map(|db| db.names().map(str::to_string).collect())
@@ -224,7 +225,7 @@ fn run_with_history(
     let resolve_result = Resolver::new(providers)
         .prefer_installed(&installed_names)
         .resolve(packages);
-    let plan = match resolve_result {
+    let mut plan = match resolve_result {
         Ok(v) => v,
         Err(ResolveError::NotFound { name, required_by }) => {
             spinner.fail("resolution failed");
@@ -295,11 +296,46 @@ fn run_with_history(
         );
     }
 
+    println!(
+        "Repository databases will be refreshed with a full system upgrade (pacman -Syu), then dependencies will be checked again. Pacman will show its own upgrade confirmation."
+    );
+
     if !yes && !ui::confirm("\nProceed with installation?")? {
         println!("aborted — nothing was changed.");
         return Ok(());
     }
 
+    // Never refresh with -Sy alone: installing against new databases without
+    // upgrading the system creates an unsupported Arch partial upgrade.
+    synchronize_system()?;
+    let spinner = Spinner::start("Rechecking dependencies against refreshed repositories");
+    // Bypass disk caches at this transaction boundary, including updates
+    // that happen to preserve file size and second-resolution timestamps.
+    let refreshed = OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)?;
+    local_db = Some(
+        archon_repo::LocalDb::load(Path::new(&local_dir()))
+            .context("failed to reload installed packages after system upgrade")?,
+    );
+    let installed = local_db
+        .as_ref()
+        .map(|db| db.names().map(str::to_string).collect())
+        .unwrap_or_default();
+    // Discard pre-upgrade AUR responses as well as the old official snapshot.
+    aur = AurClient::new(aur_url())?;
+    let checked = Resolver::new(vec![&refreshed, &aur])
+        .prefer_installed(&installed)
+        .resolve(packages)
+        .context("dependency recheck failed after system upgrade; no AUR builds were started")?;
+    spinner.success("dependencies rechecked");
+    if checked != plan {
+        println!("The install plan changed after refreshing repositories:");
+        ui::print_plan(&checked, local_db.as_ref());
+        if !yes && !ui::confirm("Proceed with the updated install plan?")? {
+            println!("installation cancelled; the system upgrade has already completed.");
+            return Ok(());
+        }
+    }
+    plan = checked;
     if !plan.official.is_empty() {
         install_official(&plan.official, local_db.as_ref())?;
     }
@@ -469,6 +505,20 @@ fn handle_typo_correction(
 /// dump the full list on the command line and print an "up to date --
 /// skipping" line for every single one already satisfied — all correct,
 /// just not information the plan display didn't already condense away.
+fn synchronize_system() -> Result<()> {
+    println!("{}", color::dim("sudo pacman -Syu"));
+    let status = Command::new("sudo")
+        .args(["pacman", "-Syu"])
+        .status()
+        .context("failed to execute pacman repository refresh and system upgrade")?;
+    if !status.success() {
+        bail!(
+            "repository refresh/system upgrade failed ({status}); installation stopped. Resolve pacman's reported error before retrying. If package downloads still return 404 after refreshing, check mirror synchronization or run `sudo pacman -Syyu`."
+        );
+    }
+    Ok(())
+}
+
 fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb>) -> Result<()> {
     let names: Vec<&str> = pkgs
         .iter()
@@ -491,7 +541,9 @@ fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb
         .status()
         .context("failed to execute pacman (is it installed and in PATH?)")?;
     if !status.success() {
-        bail!("pacman exited with {status}");
+        bail!(
+            "pacman exited with {status}; installation stopped before AUR builds. For package download 404s, refresh with a full upgrade (`sudo pacman -Syu`); if they persist, check mirror synchronization or use `sudo pacman -Syyu`."
+        );
     }
     Ok(())
 }
@@ -557,10 +609,8 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
     Ok(dest)
 }
 
-/// Runs both sandbox stages for one package with a spinner standing in
-/// for `makepkg`'s normally very chatty output — captured in the
-/// background (see [`subprocess::OutputCapture`]) and only printed if a
-/// stage actually fails.
+/// Runs both sandbox stages with live output activity and elapsed time.
+/// A bounded output tail is retained for diagnosing failures.
 pub(crate) fn build_in_sandbox(
     runner: &SandboxRunner,
     pkg_dir: &Path,
@@ -572,12 +622,15 @@ pub(crate) fn build_in_sandbox(
             BuildStage::Fetch => ("Fetching", "Fetched", "Fetch failed for"),
             BuildStage::Build => ("Building", "Built", "Build failed for"),
         };
-        let spinner = Spinner::start(format!("{action} {pkg_name}"));
+        let label = format!("{action} {pkg_name}");
+        let spinner = Spinner::build(&label, if stage == BuildStage::Fetch { 0 } else { 1 });
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
         let capture = OutputCapture::start(&mut child);
-        let status = child.wait().context("failed to wait on sandboxed build")?;
+        let status = capture
+            .wait_with_progress(&mut child, &spinner, &label)
+            .context("failed to wait on sandboxed build")?;
         let output = capture.finish();
         if !status.success() {
             spinner.fail(format!("{failure} {pkg_name}"));
@@ -864,13 +917,19 @@ pub(crate) fn run_monitored_build(
             BuildStage::Fetch => ("Fetching", "Fetched", "Fetch failed for"),
             BuildStage::Build => ("Building · monitored", "Built", "Build failed for"),
         };
-        let spinner = Spinner::start(format!("{action} {pkg_name}"));
+        let label = format!("{action} {pkg_name}");
+        let spinner = Spinner::build(&label, if stage == BuildStage::Fetch { 0 } else { 1 });
         let mut child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
         let capture = OutputCapture::start(&mut child);
 
+        let mut last_progress = std::time::Instant::now();
         let status = loop {
+            if last_progress.elapsed() >= Duration::from_millis(200) {
+                capture.update_progress(&spinner, &label);
+                last_progress = std::time::Instant::now();
+            }
             if let Some(status) = child.try_wait().context("failed to poll build process")? {
                 break status;
             }
