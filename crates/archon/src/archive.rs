@@ -52,7 +52,20 @@ impl PackageArchive {
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(source)
             .with_context(|| format!("failed to open package archive {}", source.display()))?;
-        if !input.metadata()?.is_file() {
+        let metadata = input.metadata()?;
+        if unsafe { libc::geteuid() } == 0 {
+            use std::os::unix::fs::MetadataExt;
+            let user = std::env::var("SUDO_UID")
+                .ok()
+                .and_then(|s| s.parse::<u32>().ok())
+                .filter(|uid| *uid != 0)
+                .context("root archive reads require an explicit non-root build user")?;
+            anyhow::ensure!(
+                metadata.uid() == user,
+                "refusing to snapshot an archive not owned by the build user"
+            );
+        }
+        if !metadata.is_file() {
             bail!("package archive {} is not a regular file", source.display());
         }
         let fd = unsafe {
@@ -165,10 +178,11 @@ fn send_to_helper(archives: &[PackageArchive]) -> Result<()> {
         command.args(["--", crate::handoff::HELPER]);
         command
     };
-    let mut child = command
+    let child = command
         .stdin(Stdio::piped())
         .spawn()
         .context("cannot launch administrator-installed package helper")?;
+    let mut child = crate::commands::subprocess::ManagedChild::new(child);
     let mut stdin = child.stdin.take().context("helper stdin unavailable")?;
     let written = PackageArchive::write_transaction(archives, &mut stdin);
     drop(stdin);

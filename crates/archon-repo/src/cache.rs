@@ -16,16 +16,18 @@
 //! before the next fingerprint check catches it — the same staleness
 //! window `pacman -Sy`-before-`pacman -S` already has.
 
+use std::io::Write;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Fingerprint(Vec<(String, u64, u64)>);
+pub struct Fingerprint(Vec<(String, u64, u32, u64, u64, i64, i64)>);
 
 impl Fingerprint {
-    /// One entry per file: path, mtime (unix seconds), size. Order
+    /// One entry per file: path, high-resolution timestamps, size and inode. Order
     /// matters (two directories with the same files listed in a
     /// different order are — deliberately — different fingerprints;
     /// callers always pass a consistently-ordered list).
@@ -33,7 +35,7 @@ impl Fingerprint {
         let mut entries = Vec::with_capacity(paths.len());
         for p in paths {
             let meta = std::fs::metadata(p)?;
-            entries.push((p.display().to_string(), mtime_secs(&meta), meta.len()));
+            entries.push(file_identity(p, &meta));
         }
         Ok(Self(entries))
     }
@@ -44,20 +46,25 @@ impl Fingerprint {
     /// child of `/var/lib/pacman/local`, which always bumps its mtime.
     pub fn of_dir(path: &Path) -> std::io::Result<Self> {
         let meta = std::fs::metadata(path)?;
-        Ok(Self(vec![(
-            path.display().to_string(),
-            mtime_secs(&meta),
-            0,
-        )]))
+        Ok(Self(vec![file_identity(path, &meta)]))
     }
 }
 
-fn mtime_secs(meta: &std::fs::Metadata) -> u64 {
-    meta.modified()
+fn file_identity(path: &Path, meta: &std::fs::Metadata) -> (String, u64, u32, u64, u64, i64, i64) {
+    let modified = meta
+        .modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .unwrap_or_default();
+    (
+        path.display().to_string(),
+        modified.as_secs(),
+        modified.subsec_nanos(),
+        meta.len(),
+        meta.ino(),
+        meta.ctime(),
+        meta.ctime_nsec(),
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,9 +99,13 @@ pub fn write<T: Serialize>(cache_path: &Path, fingerprint: Fingerprint, data: &T
     let Ok(bytes) = serde_json::to_vec(&CacheFile { fingerprint, data }) else {
         return;
     };
-    let tmp = cache_path.with_extension("tmp");
-    if std::fs::write(&tmp, &bytes).is_ok() {
-        let _ = std::fs::rename(&tmp, cache_path);
+    // A unique private file prevents concurrent writers from truncating each
+    // other's output or following a planted predictable .tmp symlink.
+    let Ok(mut tmp) = tempfile::NamedTempFile::new_in(parent) else {
+        return;
+    };
+    if tmp.write_all(&bytes).is_ok() {
+        let _ = tmp.persist(cache_path);
     }
 }
 
@@ -106,7 +117,7 @@ mod tests {
     fn roundtrips_through_cache() {
         let dir = tempfile::tempdir().unwrap();
         let cache_path = dir.path().join("cache.json");
-        let fp = Fingerprint(vec![("a".into(), 1, 2)]);
+        let fp = Fingerprint(vec![("a".into(), 1, 0, 2, 3, 4, 0)]);
         write(&cache_path, fp.clone(), &vec![1, 2, 3]);
         let got: Option<Vec<i32>> = try_read(&cache_path, &fp);
         assert_eq!(got, Some(vec![1, 2, 3]));
@@ -118,10 +129,13 @@ mod tests {
         let cache_path = dir.path().join("cache.json");
         write(
             &cache_path,
-            Fingerprint(vec![("a".into(), 1, 2)]),
+            Fingerprint(vec![("a".into(), 1, 0, 2, 3, 4, 0)]),
             &vec![1, 2, 3],
         );
-        let got: Option<Vec<i32>> = try_read(&cache_path, &Fingerprint(vec![("a".into(), 9, 9)]));
+        let got: Option<Vec<i32>> = try_read(
+            &cache_path,
+            &Fingerprint(vec![("a".into(), 9, 0, 9, 3, 4, 0)]),
+        );
         assert_eq!(got, None);
     }
 
@@ -140,5 +154,51 @@ mod tests {
         std::fs::write(&cache_path, b"not json").unwrap();
         let got: Option<Vec<i32>> = try_read(&cache_path, &Fingerprint(vec![]));
         assert_eq!(got, None);
+    }
+    #[test]
+    fn same_size_replacement_and_subsecond_changes_invalidate_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db");
+        std::fs::write(&path, "one").unwrap();
+        let before = Fingerprint::of_files(std::slice::from_ref(&path)).unwrap();
+        let replacement = dir.path().join("new-db");
+        std::fs::write(&replacement, "two").unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        assert_ne!(
+            before,
+            Fingerprint::of_files(std::slice::from_ref(&path)).unwrap()
+        );
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        let timestamp = UNIX_EPOCH + std::time::Duration::new(100, 1);
+        file.set_modified(timestamp).unwrap();
+        let first = Fingerprint::of_files(std::slice::from_ref(&path)).unwrap();
+        file.set_modified(timestamp + std::time::Duration::from_nanos(1))
+            .unwrap();
+        assert_ne!(first, Fingerprint::of_files(&[path]).unwrap());
+    }
+
+    #[test]
+    fn concurrent_writes_publish_complete_snapshots_without_following_tmp_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.json");
+        let victim = dir.path().join("keep");
+        std::fs::write(&victim, "untouched").unwrap();
+        std::os::unix::fs::symlink(&victim, path.with_extension("tmp")).unwrap();
+        let fp = Fingerprint(vec![]);
+        std::thread::scope(|scope| {
+            for n in 0..8 {
+                let path = &path;
+                let fp = &fp;
+                scope.spawn(move || {
+                    for _ in 0..10 {
+                        write(path, fp.clone(), &vec![n; 100]);
+                    }
+                });
+            }
+        });
+        let snapshot: Vec<usize> = try_read(&path, &fp).unwrap();
+        assert_eq!(snapshot.len(), 100);
+        assert!(snapshot.iter().all(|n| *n == snapshot[0]));
+        assert_eq!(std::fs::read_to_string(victim).unwrap(), "untouched");
     }
 }

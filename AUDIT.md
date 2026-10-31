@@ -1,5 +1,11 @@
 # Archon audit — current disposition
 
+Latest reliability follow-up (2026-10-31): see
+[the reliability review](docs/RELIABILITY-REVIEW.md) for the current install
+refresh policy, repository/cache/source fixes, build coordination, privileged
+filesystem changes, performance measurements and remaining release limits.
+The dated evidence below is historical and retains its original scope.
+
 Updated 2026-10-20. Baseline c09eb15; implementation through 1575c6e; earlier verification tooling/evidence bf7b12e.
 Commit author supplied by the user: ravindran-dev <ravindrans.dev@gmail.com>.
 This is a scoped audit with confirmed fixes, not certification of a perfect

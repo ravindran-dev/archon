@@ -7,7 +7,9 @@
 //! interleaved poll loop (the eBPF monitor's `try_wait()` loop).
 
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::process::{Child, ExitStatus};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -20,6 +22,7 @@ struct CapturedOutput {
     tail: Vec<u8>,
     last_output: Instant,
     bytes: u64,
+    read_error: Option<String>,
 }
 
 impl CapturedOutput {
@@ -68,16 +71,51 @@ impl CapturedOutput {
 
 fn spawn_drain(
     buf: Arc<Mutex<CapturedOutput>>,
-    mut pipe: impl Read + Send + 'static,
+    mut pipe: impl Read + AsRawFd + Send + 'static,
+    stopping: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut chunk = [0u8; 8192];
+        let mut after_stop = 0usize;
         loop {
+            let stop = stopping.load(Ordering::Acquire);
+            let mut descriptor = libc::pollfd {
+                fd: pipe.as_raw_fd(),
+                events: libc::POLLIN | libc::POLLHUP,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut descriptor, 1, if stop { 0 } else { 100 }) };
+            if ready == 0 {
+                if stop {
+                    break;
+                } else {
+                    continue;
+                }
+            }
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                buf.lock().unwrap().read_error = Some(error.to_string());
+                break;
+            }
             match pipe.read(&mut chunk) {
                 Ok(0) => break,
-                Ok(n) => buf.lock().unwrap().append(&chunk[..n]),
+                Ok(n) => {
+                    buf.lock().unwrap().append(&chunk[..n]);
+                    if stop {
+                        after_stop += n;
+                        if after_stop >= OUTPUT_TAIL_LIMIT {
+                            break;
+                        }
+                    }
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
+                Err(e) => {
+                    buf.lock().unwrap().read_error = Some(e.to_string());
+                    break;
+                }
             }
         }
     })
@@ -88,6 +126,7 @@ pub struct OutputCapture {
     stdout_handle: Option<JoinHandle<()>>,
     stderr_handle: Option<JoinHandle<()>>,
     last_log: Mutex<Instant>,
+    stopping: Arc<AtomicBool>,
 }
 
 impl OutputCapture {
@@ -100,14 +139,23 @@ impl OutputCapture {
             tail: Vec::new(),
             last_output: Instant::now(),
             bytes: 0,
+            read_error: None,
         }));
-        let stdout_handle = child.stdout.take().map(|p| spawn_drain(buf.clone(), p));
-        let stderr_handle = child.stderr.take().map(|p| spawn_drain(buf.clone(), p));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stdout_handle = child
+            .stdout
+            .take()
+            .map(|p| spawn_drain(buf.clone(), p, stopping.clone()));
+        let stderr_handle = child
+            .stderr
+            .take()
+            .map(|p| spawn_drain(buf.clone(), p, stopping.clone()));
         Self {
             buf,
             stdout_handle,
             stderr_handle,
             last_log: Mutex::new(Instant::now()),
+            stopping,
         }
     }
 
@@ -142,24 +190,54 @@ impl OutputCapture {
     /// Joins the reader threads (only meaningful once the child has
     /// exited — its pipes only hit EOF then) and returns the retained
     /// output tail, lossily decoded.
-    pub fn finish(self) -> String {
-        if let Some(h) = self.stdout_handle {
+    pub fn finish(mut self) -> Result<String> {
+        self.stopping.store(true, Ordering::Release);
+        if let Some(h) = self.stdout_handle.take() {
             let _ = h.join();
         }
-        if let Some(h) = self.stderr_handle {
+        if let Some(h) = self.stderr_handle.take() {
             let _ = h.join();
         }
-        String::from_utf8_lossy(&self.buf.lock().unwrap().tail).into_owned()
+        let output = self.buf.lock().unwrap();
+        if let Some(error) = &output.read_error {
+            anyhow::bail!("failed to capture subprocess output: {error}");
+        }
+        Ok(String::from_utf8_lossy(&output.tail).into_owned())
     }
 }
 
-/// Spawn-and-forget capture for callers with no interleaved polling loop
-/// (a plain unmonitored build, `git clone`, ...): blocks until the child
-/// exits, then returns its status and everything it printed.
-pub fn wait_capturing(mut child: Child) -> Result<(ExitStatus, String)> {
-    let capture = OutputCapture::start(&mut child);
-    let status = child.wait()?;
-    Ok((status, capture.finish()))
+impl Drop for OutputCapture {
+    fn drop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
+    }
+}
+
+/// Reap failed subprocesses when a caller exits early (for example on a monitor
+/// or log error). Bubblewrap's PID namespace owns the build descendants.
+pub struct ManagedChild(Child);
+impl ManagedChild {
+    pub fn new(child: Child) -> Self {
+        Self(child)
+    }
+}
+impl std::ops::Deref for ManagedChild {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for ManagedChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+impl Drop for ManagedChild {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 }
 
 /// Prints captured subprocess output, but only if there's any — a clean
@@ -209,7 +287,7 @@ mod tests {
             .write_all(b"continue\n")
             .unwrap();
         assert!(child.wait().unwrap().success());
-        let output = capture.finish();
+        let output = capture.finish().unwrap();
         assert!(output.contains("Compiling coolercontrold"));
         assert!(output.contains("done"));
     }
@@ -220,6 +298,7 @@ mod tests {
             tail: Vec::new(),
             bytes: 0,
             last_output: Instant::now(),
+            read_error: None,
         };
         output.append(&vec![b'x'; OUTPUT_TAIL_LIMIT]);
         output.append(b"\nlatest compiler message\n");
@@ -238,10 +317,38 @@ mod tests {
             tail: Vec::new(),
             bytes: 0,
             last_output: Instant::now(),
+            read_error: None,
         };
         output.append(b"\x1b[31mCompiling\x1b[0m\n");
         let message = output.message("Building");
         assert!(message.ends_with("Compiling"));
         assert!(!message.contains('\x1b'));
+    }
+    #[test]
+    fn inherited_output_pipes_do_not_hang_after_parent_exits() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 2 & printf 'finished\\n'"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let capture = OutputCapture::start(&mut child);
+        assert!(child.wait().unwrap().success());
+        let start = Instant::now();
+        assert!(capture.finish().unwrap().contains("finished"));
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn early_exit_kills_and_reaps_the_child() {
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id();
+        drop(ManagedChild::new(child));
+        let result = unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), libc::WNOHANG) };
+        assert_eq!(result, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
     }
 }

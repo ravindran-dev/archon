@@ -58,11 +58,16 @@ pub fn run(packages: &[String], dry_run: bool, yes: bool) -> Result<()> {
 
     let spinner = Spinner::start(format!("Checking {}", packages.join(", ")));
     let local_dir = install::local_dir();
-    let local_db = match archon_repo::LocalDb::load_cached(
-        Path::new(&local_dir),
-        &install::cache_dir().join("local-db.json"),
-    )
-    .with_context(|| format!("failed to read the local package database at {local_dir}"))
+    let loaded = if unsafe { libc::geteuid() } == 0 {
+        archon_repo::LocalDb::load(Path::new(&local_dir))
+    } else {
+        archon_repo::LocalDb::load_cached(
+            Path::new(&local_dir),
+            &install::cache_dir().join("local-db.json"),
+        )
+    };
+    let local_db = match loaded
+        .with_context(|| format!("failed to read the local package database at {local_dir}"))
     {
         Ok(v) => v,
         Err(e) => {

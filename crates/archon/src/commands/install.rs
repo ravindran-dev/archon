@@ -15,7 +15,7 @@
 //!    in build order, with versions and what pulled each one in.
 //! 4. `--dry-run` stops here — guaranteed no side effects past this point.
 //!    Otherwise prompt `[y/N]` (unless `--yes`), then:
-//!    - refresh/upgrade with `sudo pacman -Syu`, reload metadata and resolve again
+//!    - with --refresh: refresh/upgrade with `sudo pacman -Syu`, reload metadata and resolve again
 //!    - official: `sudo pacman -S --needed <pkgs>` (pacman owns its own
 //!      confirmation and privilege handling from here)
 //!    - AUR: `git clone` each package's AUR repo, then build it inside the
@@ -83,13 +83,70 @@ pub(crate) fn cache_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp/archon-cache"))
 }
 
+/// Match enabled repositories and precedence to pacman's effective config.
+/// Fixture databases retain an isolated, deterministic order.
+pub(crate) fn load_official_repos(cached: bool) -> Result<OfficialRepos> {
+    let directory = sync_dir();
+    let order = if let Ok(order) = std::env::var("ARCHON_REPO_ORDER") {
+        order.split(':').map(str::to_string).collect::<Vec<_>>()
+    } else if std::env::var_os("ARCHON_SYNC_DIR").is_some() {
+        // Hermetic test fixtures are intentionally independent of host config.
+        return if cached && unsafe { libc::geteuid() } != 0 {
+            Ok(OfficialRepos::load_cached(
+                Path::new(&directory),
+                archon_repo::DEFAULT_REPO_ORDER,
+                &cache_dir().join("sync-db.json"),
+            )?)
+        } else {
+            Ok(OfficialRepos::load(
+                Path::new(&directory),
+                archon_repo::DEFAULT_REPO_ORDER,
+            )?)
+        };
+    } else {
+        let output = Command::new("pacman-conf")
+            .arg("--repo-list")
+            .output()
+            .context("cannot read enabled repositories with pacman-conf --repo-list")?;
+        if !output.status.success() {
+            bail!(
+                "pacman-conf failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        String::from_utf8(output.stdout)?
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    if order.is_empty() {
+        bail!("pacman has no enabled repositories");
+    }
+    let names = order.iter().map(String::as_str).collect::<Vec<_>>();
+    let cache = cache_dir().join("sync-db.json");
+    Ok(OfficialRepos::load_configured(
+        Path::new(&directory),
+        &names,
+        (cached && unsafe { libc::geteuid() } != 0).then_some(cache.as_path()),
+    )?)
+}
+
 /// Best-effort: used only to keep the plan display honest about what's
 /// already on the system, never for resolution itself, so any failure
 /// (missing dir, permissions) just falls back to showing everything —
 /// the same as if this lookup didn't exist at all.
 fn load_local_db() -> Option<archon_repo::LocalDb> {
-    archon_repo::LocalDb::load_cached(Path::new(&local_dir()), &cache_dir().join("local-db.json"))
+    if unsafe { libc::geteuid() } == 0 {
+        archon_repo::LocalDb::load(Path::new(&local_dir())).ok()
+    } else {
+        archon_repo::LocalDb::load_cached(
+            Path::new(&local_dir()),
+            &cache_dir().join("local-db.json"),
+        )
         .ok()
+    }
 }
 
 /// Non-Arch path. There's no archon-computed dependency graph here to show
@@ -171,12 +228,33 @@ pub(crate) fn run_native_tool(
     Ok(())
 }
 
-pub fn run(packages: &[String], dry_run: bool, yes: bool, report: bool) -> Result<()> {
+pub fn run(
+    packages: &[String],
+    dry_run: bool,
+    yes: bool,
+    report: bool,
+    refresh: bool,
+) -> Result<()> {
+    validate_package_names(packages)?;
+    if refresh && !dry_run && Distro::detect().is_arch() {
+        if report {
+            require_monitoring_privileges()?;
+        }
+        println!(
+            "--refresh will refresh repositories and perform a full system upgrade with pacman -Syu before resolving the install plan."
+        );
+        if !yes && !ui::confirm("Refresh repositories and upgrade the system first?")? {
+            println!("aborted — nothing was changed.");
+            return Ok(());
+        }
+        synchronize_system()?;
+    }
     run_with_history(
         packages,
         dry_run,
         yes,
         report,
+        refresh,
         &std::collections::HashMap::new(),
     )
 }
@@ -186,23 +264,23 @@ fn run_with_history(
     dry_run: bool,
     yes: bool,
     report: bool,
+    refresh: bool,
     correction_history: &std::collections::HashMap<usize, Vec<String>>,
 ) -> Result<()> {
     validate_package_names(packages)?;
     let distro = Distro::detect();
     if !distro.is_arch() {
+        if refresh {
+            bail!(
+                "install --refresh is Arch-specific; use `archon upgrade` to update this distribution"
+            );
+        }
         return run_foreign_distro(&distro, packages, dry_run, yes, report);
     }
 
     let spinner = Spinner::start(format!("Resolving {}", packages.join(", ")));
     let sync_dir = sync_dir();
-    let repo_cache = cache_dir().join("sync-db.json");
-    let official = match OfficialRepos::load_cached(
-        Path::new(&sync_dir),
-        archon_repo::DEFAULT_REPO_ORDER,
-        &repo_cache,
-    )
-    .with_context(|| {
+    let official = match load_official_repos(!refresh).with_context(|| {
         format!(
             "failed to load official repo databases from {sync_dir} \
                  (run `sudo pacman -Syu` if you've never synced)"
@@ -214,8 +292,15 @@ fn run_with_history(
             return Err(e);
         }
     };
-    let mut aur = AurClient::new(aur_url())?;
-    let mut local_db = load_local_db();
+    let aur = AurClient::new(aur_url())?;
+    let local_db = if refresh && !dry_run {
+        Some(
+            archon_repo::LocalDb::load(Path::new(&local_dir()))
+                .context("cannot reload installed packages after refresh")?,
+        )
+    } else {
+        load_local_db()
+    };
     let installed_names: std::collections::HashSet<String> = local_db
         .as_ref()
         .map(|db| db.names().map(str::to_string).collect())
@@ -225,7 +310,7 @@ fn run_with_history(
     let resolve_result = Resolver::new(providers)
         .prefer_installed(&installed_names)
         .resolve(packages);
-    let mut plan = match resolve_result {
+    let plan = match resolve_result {
         Ok(v) => v,
         Err(ResolveError::NotFound { name, required_by }) => {
             spinner.fail("resolution failed");
@@ -254,7 +339,14 @@ fn run_with_history(
                     if pos < new_packages.len() {
                         new_packages[pos] = corrected;
                     }
-                    return run_with_history(&new_packages, dry_run, yes, report, &new_history);
+                    return run_with_history(
+                        &new_packages,
+                        dry_run,
+                        yes,
+                        report,
+                        refresh,
+                        &new_history,
+                    );
                 }
             }
             return Err(not_found_with_suggestions(
@@ -279,12 +371,31 @@ fn run_with_history(
     ui::print_plan(&plan, local_db.as_ref());
 
     if dry_run {
+        if refresh {
+            println!(
+                "With --refresh, installation will first run pacman -Syu and recheck this locally cached plan."
+            );
+        }
+        return Ok(());
+    }
+    if plan.official.iter().all(|pkg| {
+        local_db
+            .as_ref()
+            .is_some_and(|db| db.satisfies(&pkg.meta.name, &pkg.meta.version))
+    }) && pending_aur(&plan.aur, local_db.as_ref()).is_empty()
+    {
+        println!(
+            "{} Requested packages are already installed and up to date: {}",
+            color::green("✓"),
+            packages.join(", ")
+        );
         return Ok(());
     }
 
     if report {
         require_monitoring_privileges()?;
     }
+    preflight_aur(&pending_aur(&plan.aur, local_db.as_ref()), report)?;
 
     if !report && !plan.aur.is_empty() {
         println!(
@@ -296,58 +407,66 @@ fn run_with_history(
         );
     }
 
-    println!(
-        "Repository databases will be refreshed with a full system upgrade (pacman -Syu), then dependencies will be checked again. Pacman will show its own upgrade confirmation."
-    );
-
     if !yes && !ui::confirm("\nProceed with installation?")? {
-        println!("aborted — nothing was changed.");
+        if refresh {
+            println!("installation cancelled; the system upgrade has already completed.");
+        } else {
+            println!("aborted — nothing was changed.");
+        }
         return Ok(());
     }
 
-    // Never refresh with -Sy alone: installing against new databases without
-    // upgrading the system creates an unsupported Arch partial upgrade.
-    synchronize_system()?;
-    let spinner = Spinner::start("Rechecking dependencies against refreshed repositories");
-    // Bypass disk caches at this transaction boundary, including updates
-    // that happen to preserve file size and second-resolution timestamps.
-    let refreshed = OfficialRepos::load(Path::new(&sync_dir), archon_repo::DEFAULT_REPO_ORDER)?;
-    local_db = Some(
-        archon_repo::LocalDb::load(Path::new(&local_dir()))
-            .context("failed to reload installed packages after system upgrade")?,
-    );
-    let installed = local_db
-        .as_ref()
-        .map(|db| db.names().map(str::to_string).collect())
-        .unwrap_or_default();
-    // Discard pre-upgrade AUR responses as well as the old official snapshot.
-    aur = AurClient::new(aur_url())?;
-    let checked = Resolver::new(vec![&refreshed, &aur])
-        .prefer_installed(&installed)
-        .resolve(packages)
-        .context("dependency recheck failed after system upgrade; no AUR builds were started")?;
-    spinner.success("dependencies rechecked");
-    if checked != plan {
-        println!("The install plan changed after refreshing repositories:");
-        ui::print_plan(&checked, local_db.as_ref());
-        if !yes && !ui::confirm("Proceed with the updated install plan?")? {
-            println!("installation cancelled; the system upgrade has already completed.");
-            return Ok(());
-        }
-    }
-    plan = checked;
     if !plan.official.is_empty() {
         install_official(&plan.official, local_db.as_ref())?;
     }
 
-    if !plan.aur.is_empty() {
+    let pending = pending_aur(&plan.aur, local_db.as_ref());
+    preflight_aur(&pending, report)?;
+    if !pending.is_empty() {
         if report {
-            build_aur_packages_monitored(&aur, &plan.aur)?;
+            build_aur_packages_monitored(&aur, &pending)?;
         } else {
-            build_aur_packages(&aur, &plan.aur)?;
+            build_aur_packages(&aur, &pending)?;
         }
+    } else if !plan.aur.is_empty() {
+        println!("all resolved AUR packages are installed and up to date");
     }
+    println!(
+        "{} Requested packages are installed: {}",
+        color::green("✓"),
+        packages.join(", ")
+    );
+    Ok(())
+}
 
+fn vcs_package(pkg: &PlannedPackage) -> bool {
+    ["-git", "-svn", "-hg", "-bzr"]
+        .iter()
+        .any(|suffix| pkg.meta.build_base().ends_with(suffix))
+}
+
+fn pending_aur(
+    pkgs: &[PlannedPackage],
+    local: Option<&archon_repo::LocalDb>,
+) -> Vec<PlannedPackage> {
+    pkgs.iter()
+        .filter(|pkg| {
+            vcs_package(pkg)
+                || !local.is_some_and(|db| db.satisfies(&pkg.meta.name, &pkg.meta.version))
+        })
+        .cloned()
+        .collect()
+}
+
+fn preflight_aur(pkgs: &[PlannedPackage], report: bool) -> Result<()> {
+    if pkgs.is_empty() {
+        return Ok(());
+    }
+    if !report && unsafe { libc::geteuid() } == 0 {
+        bail!("run ordinary AUR installs as your normal user; only --report requires sudo");
+    }
+    ensure_bwrap()?;
+    crate::archive::check_handoff_policy()?;
     Ok(())
 }
 
@@ -526,7 +645,10 @@ fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb
         .map(|p| p.meta.name.as_str())
         .collect();
     if names.is_empty() {
-        println!("{}", color::dim("all official packages already up to date"));
+        println!(
+            "{}",
+            color::dim("all resolved official packages are installed and up to date")
+        );
         return Ok(());
     }
     println!(
@@ -542,7 +664,7 @@ fn install_official(pkgs: &[PlannedPackage], local: Option<&archon_repo::LocalDb
         .context("failed to execute pacman (is it installed and in PATH?)")?;
     if !status.success() {
         bail!(
-            "pacman exited with {status}; installation stopped before AUR builds. For package download 404s, refresh with a full upgrade (`sudo pacman -Syu`); if they persist, check mirror synchronization or use `sudo pacman -Syyu`."
+            "pacman exited with {status}; installation stopped before AUR builds. For package download 404s, retry with `archon install <packages> --refresh` (full system upgrade); if they persist, check mirror synchronization or use `sudo pacman -Syyu`."
         );
     }
     Ok(())
@@ -558,10 +680,13 @@ fn ensure_bwrap() -> Result<()> {
     Ok(())
 }
 
-/// Clones an AUR package's git repo if not already present. Existing
-/// clones are left untouched rather than force-reset, since this is
-/// user-visible working state, not disposable scratch space.
-fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> Result<PathBuf> {
+/// Fetch current recipes without overwriting local edits or diverged commits.
+fn clone_if_needed(
+    aur: &AurClient,
+    pkg: &PlannedPackage,
+    build_root: &Path,
+    user: Option<&Privileges>,
+) -> Result<PathBuf> {
     let base = pkg.meta.build_base();
     if base.is_empty()
         || base == "."
@@ -574,39 +699,107 @@ fn clone_if_needed(aur: &AurClient, pkg: &PlannedPackage, build_root: &Path) -> 
         bail!("invalid AUR package base {base:?}");
     }
     let dest = build_root.join(base);
+    let url = aur.clone_url_for_base(base);
     if dest.exists() {
-        println!(
-            "{} {} · {}",
-            color::green("✓"),
-            color::dim("Source cached"),
-            color::bold(&pkg.meta.name)
-        );
-        return Ok(dest);
+        let _lock = crate::build_lock::BuildLock::acquire(&dest)?;
+        if !dest.join(".git").exists() {
+            bail!(
+                "cached source {} is not a Git checkout; move it aside and retry",
+                dest.display()
+            );
+        }
+        let mut status = Command::new("git");
+        status
+            .arg("-C")
+            .arg(&dest)
+            .args(["status", "--porcelain", "--untracked-files=no"]);
+        let child = spawn_source_command(status, user, &dest)?;
+        let mut child = subprocess::ManagedChild::new(child);
+        let capture = OutputCapture::start(&mut child);
+        let status_code = child.wait().context("cannot check cached AUR source")?;
+        let status_output = capture.finish()?;
+        if !status_code.success() || !status_output.trim().is_empty() {
+            bail!(
+                "cached source {} has local changes or is unreadable; commit or move your edits before retrying",
+                dest.display()
+            );
+        }
+        let mut fetch = Command::new("git");
+        fetch
+            .arg("-C")
+            .arg(&dest)
+            .args(["fetch", "--no-tags", "--progress", "--"])
+            .arg(&url)
+            .arg("HEAD");
+        run_source_command(fetch, user, &dest, &format!("Refreshing {base}"))?;
+        let mut merge = Command::new("git");
+        merge.arg("-C").arg(&dest).args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "merge",
+            "--ff-only",
+            "FETCH_HEAD",
+        ]);
+        run_source_command(
+            merge,
+            user,
+            &dest,
+            &format!("Updating {base} (fast-forward only)"),
+        )?;
+    } else {
+        let mut clone = Command::new("git");
+        clone
+            .args(["clone", "--progress", "--"])
+            .arg(&url)
+            .arg(&dest);
+        run_source_command(clone, user, build_root, &format!("Cloning {base}"))?;
     }
-    let url = aur.clone_url_for(&pkg.meta.name).with_context(|| {
-        format!(
-            "no clone URL cached for {} (internal error: resolver should have queried it)",
-            pkg.meta.name
-        )
-    })?;
-    let spinner = Spinner::start(format!("Cloning {}", pkg.meta.name));
-    let child = Command::new("git")
-        .arg("clone")
-        .arg("--quiet")
-        .arg(&url)
-        .arg(&dest)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("failed to execute git (is it installed and in PATH?)")?;
-    let (status, output) = subprocess::wait_capturing(child)?;
-    if !status.success() {
-        spinner.fail(format!("clone failed: {}", pkg.meta.name));
-        subprocess::print_if_nonempty(&output);
-        bail!("git clone failed for {}", pkg.meta.name);
-    }
-    spinner.success(format!("Cloned {}", pkg.meta.name));
     Ok(dest)
+}
+
+fn spawn_source_command(
+    command: Command,
+    user: Option<&Privileges>,
+    directory: &Path,
+) -> Result<std::process::Child> {
+    // Cached .git/config is package-writable state: fsmonitor, filters, hooks
+    // and transport commands must never execute outside the build boundary.
+    let mut args = vec![command.get_program().to_string_lossy().into_owned()];
+    args.extend(
+        command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned()),
+    );
+    let mut runner = SandboxRunner::new(directory)
+        .capture_output(true)
+        .with_env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(user) = user {
+        runner = runner.run_as(user.uid, user.gid);
+    }
+    runner
+        .spawn_command(BuildStage::Fetch, &args)
+        .context("cannot launch sandboxed Git")
+}
+
+fn run_source_command(
+    command: Command,
+    user: Option<&Privileges>,
+    directory: &Path,
+    label: &str,
+) -> Result<()> {
+    let spinner = Spinner::start(label);
+    let child = spawn_source_command(command, user, directory)?;
+    let mut child = subprocess::ManagedChild::new(child);
+    let capture = OutputCapture::start(&mut child);
+    let status = capture.wait_with_progress(&mut child, &spinner, label)?;
+    let output = capture.finish()?;
+    if !status.success() {
+        spinner.fail(label);
+        subprocess::print_if_nonempty(&output);
+        bail!("{label} failed ({status}); cached sources were not reset or discarded");
+    }
+    spinner.success(label);
+    Ok(())
 }
 
 /// Runs both sandbox stages with live output activity and elapsed time.
@@ -624,14 +817,15 @@ pub(crate) fn build_in_sandbox(
         };
         let label = format!("{action} {pkg_name}");
         let spinner = Spinner::build(&label, if stage == BuildStage::Fetch { 0 } else { 1 });
-        let mut child = runner
+        let child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
+        let mut child = subprocess::ManagedChild::new(child);
         let capture = OutputCapture::start(&mut child);
         let status = capture
             .wait_with_progress(&mut child, &spinner, &label)
             .context("failed to wait on sandboxed build")?;
-        let output = capture.finish();
+        let output = capture.finish()?;
         if !status.success() {
             spinner.fail(format!("{failure} {pkg_name}"));
             subprocess::print_if_nonempty(&output);
@@ -660,10 +854,12 @@ fn build_aur_packages_with_installer(
     std::fs::create_dir_all(&build_root)
         .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
 
+    let _build_root_lock = crate::build_lock::BuildLock::acquire(&build_root)?;
     println!();
     for group in aur_build_groups(pkgs) {
         let pkg = group[0];
-        let dest = clone_if_needed(aur, pkg, &build_root)?;
+        let dest = clone_if_needed(aur, pkg, &build_root, None)?;
+        let _package_lock = crate::build_lock::BuildLock::acquire(&dest)?;
         let runner = SandboxRunner::new(&dest).capture_output(true);
         build_in_sandbox(&runner, &dest, pkg.meta.build_base())?;
         let files = built_group_files(&dest, &group)?;
@@ -697,11 +893,16 @@ fn aur_build_groups(pkgs: &[PlannedPackage]) -> Vec<Vec<&PlannedPackage>> {
 fn built_group_files(dest: &Path, group: &[&PlannedPackage]) -> Result<Vec<PackageArchive>> {
     let mut outputs = Vec::new();
     for pkg in group {
-        let files = find_package_archives(dest, &pkg.meta.name)?;
+        let files = find_package_archives(
+            dest,
+            &pkg.meta.name,
+            Some((&pkg.meta.version, vcs_package(pkg))),
+        )?;
         if files.len() != 1 {
             bail!(
-                "expected exactly one built package archive for {} in {}, found {}; refusing installation of missing or ambiguous output",
+                "expected exactly one built package archive for {} at planned version {} in {}, found {}; refusing stale, missing or ambiguous output",
                 pkg.meta.name,
+                pkg.meta.version,
                 dest.display(),
                 files.len()
             );
@@ -744,6 +945,9 @@ pub(crate) fn require_monitoring_privileges() -> Result<Privileges> {
         .ok()
         .and_then(|s| s.parse().ok())
         .context("running as root but $SUDO_GID is unset (see $SUDO_UID note above)")?;
+    if uid == 0 || gid == 0 {
+        bail!("--report requires a non-root build user and group");
+    }
     Ok(Privileges { uid, gid })
 }
 
@@ -762,38 +966,19 @@ fn build_aur_packages_monitored(aur: &AurClient, pkgs: &[PlannedPackage]) -> Res
     // the real target user's home instead.
     let user_home = home_dir_for_uid(privileges.uid)?;
     let build_root = build_dir_under(&user_home);
-    std::fs::create_dir_all(&build_root)
-        .with_context(|| format!("failed to create build dir {}", build_root.display()))?;
-    // Chown the whole archon cache root, not just build/ — the resolver's
-    // on-disk cache (archon_repo::cache) lives directly under here too,
-    // and a root-owned parent silently blocks every future non-sudo run
-    // from ever writing it (cache-write failures are swallowed by design,
-    // so on a real system this went unnoticed until measured: caching
-    // appeared to do nothing at all, because it never actually happened).
-    if let Some(cache_root) = build_root.parent() {
-        ensure_owned(cache_root, privileges.uid, privileges.gid).with_context(|| {
-            format!(
-                "failed to chown {} to the target user",
-                cache_root.display()
-            )
-        })?;
+    let mut mkdir = Command::new("/usr/bin/mkdir");
+    mkdir.args(["-p", "--"]).arg(&build_root);
+    as_build_user(&mut mkdir, &privileges)?;
+    if !mkdir.status()?.success() {
+        bail!("cannot create build directory as the build user; fix its ownership before retrying");
     }
-    ensure_owned(&build_root, privileges.uid, privileges.gid).with_context(|| {
-        format!(
-            "failed to chown {} to the target user",
-            build_root.display()
-        )
-    })?;
-    let store =
-        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
+    let _build_root_lock = crate::build_lock::BuildLock::acquire(&build_root)?;
+    let store = open_monitor_store()?;
 
     for group in aur_build_groups(pkgs) {
         let pkg = group[0];
-        let dest = clone_if_needed(aur, pkg, &build_root)?;
-        // `git clone` above ran as root; the sandboxed build that's about
-        // to run as the dropped-to user needs to write into this tree.
-        ensure_owned_recursive(&dest, privileges.uid, privileges.gid)
-            .with_context(|| format!("failed to chown {} to the target user", dest.display()))?;
+        let dest = clone_if_needed(aur, pkg, &build_root, Some(&privileges))?;
+        let _package_lock = crate::build_lock::BuildLock::acquire(&dest)?;
         let report = run_monitored_build(
             &mut monitor,
             &store,
@@ -919,9 +1104,10 @@ pub(crate) fn run_monitored_build(
         };
         let label = format!("{action} {pkg_name}");
         let spinner = Spinner::build(&label, if stage == BuildStage::Fetch { 0 } else { 1 });
-        let mut child = runner
+        let child = runner
             .spawn_stage(stage)
             .with_context(|| format!("failed to start {stage:?} stage for {pkg_name}"))?;
+        let mut child = subprocess::ManagedChild::new(child);
         let capture = OutputCapture::start(&mut child);
 
         let mut last_progress = std::time::Instant::now();
@@ -959,7 +1145,7 @@ pub(crate) fn run_monitored_build(
             &mut total_events,
             &mut flagged,
         )?;
-        let output = capture.finish();
+        let output = capture.finish()?;
 
         if !status.success() {
             spinner.fail(format!("{failure} {pkg_name}"));
@@ -990,15 +1176,20 @@ fn drain_and_record(
     total_events: &mut usize,
     flagged: &mut Vec<FlaggedEvent>,
 ) -> Result<()> {
-    for event in monitor
+    let events = monitor
         .drain_events()
         .context("failed to read monitor events")?
-    {
-        *total_events += 1;
-        let reason = policy.evaluate(&event);
-        store
-            .record_event(build_id, &event, reason.as_ref())
-            .context("failed to record event")?;
+        .into_iter()
+        .map(|event| {
+            let reason = policy.evaluate(&event);
+            (event, reason)
+        })
+        .collect::<Vec<_>>();
+    store
+        .record_batch(build_id, &events)
+        .context("failed to record monitor event batch")?;
+    *total_events += events.len();
+    for (event, reason) in events {
         if let Some(reason) = reason {
             flagged.push(FlaggedEvent { event, reason });
         }
@@ -1007,13 +1198,17 @@ fn drain_and_record(
 }
 
 pub(crate) fn find_package_files(dest: &Path, pkg_name: &str) -> Result<Vec<PathBuf>> {
-    Ok(find_package_archives(dest, pkg_name)?
+    Ok(find_package_archives(dest, pkg_name, None)?
         .into_iter()
         .map(|archive| archive.source().to_path_buf())
         .collect())
 }
 
-fn find_package_archives(dest: &Path, pkg_name: &str) -> Result<Vec<PackageArchive>> {
+fn find_package_archives(
+    dest: &Path,
+    pkg_name: &str,
+    expected: Option<(&archon_types::Version, bool)>,
+) -> Result<Vec<PackageArchive>> {
     let mut files = Vec::new();
     for entry in
         std::fs::read_dir(dest).with_context(|| format!("failed to read {}", dest.display()))?
@@ -1044,7 +1239,20 @@ fn find_package_archives(dest: &Path, pkg_name: &str) -> Result<Vec<PackageArchi
             }
             let metadata =
                 String::from_utf8(identity.stdout).context("invalid package identity output")?;
-            if metadata.split_whitespace().next() == Some(pkg_name) {
+            let mut fields = metadata.split_whitespace();
+            if fields.next() == Some(pkg_name) {
+                let version = fields
+                    .next()
+                    .context("package identity is missing its version")?;
+                if let Some((expected, vcs)) = expected {
+                    let actual = archon_types::Version::parse(version)?;
+                    let comparison = actual.vercmp(expected)?;
+                    if (!vcs && comparison != std::cmp::Ordering::Equal)
+                        || (vcs && comparison == std::cmp::Ordering::Less)
+                    {
+                        continue;
+                    }
+                }
                 files.push(archive);
             }
         }
@@ -1115,34 +1323,172 @@ pub(crate) fn home_dir_for_uid(uid: u32) -> Result<PathBuf> {
     Ok(PathBuf::from(home))
 }
 
-/// `create_dir_all` under a root process creates root-owned directories;
-/// the sandboxed build then runs as the dropped-to non-root user and needs
-/// to write into `path`, so hand ownership back. Non-recursive: `path`'s
-/// parents being root-owned is harmless (default 0755 is traversable by
-/// anyone), only `path` itself needs to be writable by the target user.
-pub(crate) fn ensure_owned(path: &Path, uid: u32, gid: u32) -> Result<()> {
-    ensure_owned_impl(path, uid, gid, false)
-}
-
-/// As [`ensure_owned`], but recursive — needed after `git clone` (still
-/// run as root even on the monitored path) leaves the whole cloned tree
-/// root-owned, which the privilege-dropped sandbox then can't write into.
-pub(crate) fn ensure_owned_recursive(path: &Path, uid: u32, gid: u32) -> Result<()> {
-    ensure_owned_impl(path, uid, gid, true)
-}
-
-fn ensure_owned_impl(path: &Path, uid: u32, gid: u32, recursive: bool) -> Result<()> {
-    let mut cmd = Command::new("chown");
-    if recursive {
-        cmd.arg("-R");
+/// Drop all credentials in the child, before executing Git or filesystem tools.
+pub(crate) fn as_build_user(command: &mut Command, user: &Privileges) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    if user.uid == 0 || user.gid == 0 {
+        bail!("build identity must not be root");
     }
-    let status = cmd
-        .arg(format!("{uid}:{gid}"))
-        .arg(path)
-        .status()
-        .context("failed to execute chown")?;
-    if !status.success() {
-        bail!("chown exited with {status}");
+    let (uid, gid) = (user.uid, user.gid);
+    command.env("HOME", home_dir_for_uid(uid)?);
+    unsafe {
+        command.pre_exec(move || {
+            if libc::setgroups(1, &gid) != 0 || libc::setgid(gid) != 0 || libc::setuid(uid) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
     Ok(())
+}
+
+/// Root never opens SQLite under a user-writable build/cache tree.
+pub(crate) fn open_monitor_store() -> Result<EventStore> {
+    use std::os::unix::fs::MetadataExt;
+    let staging = crate::handoff::prepare_root()?;
+    let path = staging
+        .parent()
+        .context("missing monitor state parent")?
+        .join("monitor.db");
+    if let Ok(metadata) = std::fs::symlink_metadata(&path)
+        && (!metadata.is_file() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0)
+    {
+        bail!("unsafe monitor database {}", path.display());
+    }
+    EventStore::open(&path).context("cannot open administrator-owned monitor database")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn package(name: &str) -> PlannedPackage {
+        PlannedPackage {
+            meta: archon_types::PackageMeta {
+                name: name.into(),
+                package_base: Some(name.into()),
+                version: archon_types::Version::parse("1-1").unwrap(),
+                description: None,
+                source: archon_types::PackageSource::Aur,
+                depends: vec![],
+                make_depends: vec![],
+                conflicts: vec![],
+                provides: vec![],
+            },
+            required_by: vec![],
+        }
+    }
+
+    #[test]
+    fn current_aur_packages_are_not_rebuilt_but_vcs_packages_remain_pending() {
+        let local = tempfile::tempdir().unwrap();
+        for name in ["app", "app-git"] {
+            let path = local.path().join(format!("{name}-1-1"));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::write(
+                path.join("desc"),
+                format!("%NAME%\n{name}\n\n%VERSION%\n1-1\n"),
+            )
+            .unwrap();
+        }
+        let db = archon_repo::LocalDb::load(local.path()).unwrap();
+        let pending = pending_aur(
+            &[package("app"), package("app-git"), package("missing")],
+            Some(&db),
+        );
+        assert_eq!(
+            pending
+                .iter()
+                .map(|p| p.meta.name.as_str())
+                .collect::<Vec<_>>(),
+            ["app-git", "missing"]
+        );
+    }
+
+    #[test]
+    fn cached_sources_fast_forward_and_preserve_local_edits_and_divergence() {
+        fn git(directory: &Path, args: &[&str]) {
+            let result = Command::new("git")
+                .arg("-C")
+                .arg(directory)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        fn commit(directory: &Path, text: &str) {
+            std::fs::write(directory.join("PKGBUILD"), text).unwrap();
+            git(directory, &["add", "PKGBUILD"]);
+            git(
+                directory,
+                &[
+                    "-c",
+                    "user.name=Archon test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-m",
+                    "fixture",
+                ],
+            );
+        }
+        if !SandboxRunner::bwrap_available() {
+            eprintln!("requires bubblewrap for real source-isolation testing");
+            return;
+        }
+        // /var/tmp stays visible read-only inside the sandbox, unlike /tmp.
+        let root = tempfile::Builder::new()
+            .prefix("archon-git-fixture-")
+            .tempdir_in("/var/tmp")
+            .unwrap();
+        let remote = root.path().join("fixture.git");
+        std::fs::create_dir(&remote).unwrap();
+        git(&remote, &["init", "-b", "main"]);
+        commit(&remote, "version one");
+        let builds = tempfile::tempdir().unwrap();
+        let aur = AurClient::new(format!("file://{}", root.path().display())).unwrap();
+        let pkg = package("fixture");
+        let dest = clone_if_needed(&aur, &pkg, builds.path(), None).unwrap();
+        commit(&remote, "version two");
+        clone_if_needed(&aur, &pkg, builds.path(), None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dest.join("PKGBUILD")).unwrap(),
+            "version two"
+        );
+        let marker = root.path().join("host-marker");
+        std::fs::write(&marker, "unchanged").unwrap();
+        let command = format!("printf compromised > {}", marker.display());
+        git(&dest, &["config", "core.fsmonitor", &command]);
+        // A package could leave executable Git configuration in its cache.
+        // The write attempt must remain inside the read-only host boundary.
+        let _ = clone_if_needed(&aur, &pkg, builds.path(), None);
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "unchanged");
+        git(&dest, &["config", "--unset", "core.fsmonitor"]);
+        std::fs::write(dest.join("PKGBUILD"), "my edits").unwrap();
+        assert!(clone_if_needed(&aur, &pkg, builds.path(), None).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dest.join("PKGBUILD")).unwrap(),
+            "my edits"
+        );
+        commit(&dest, "local commit");
+        commit(&remote, "version three");
+        assert!(clone_if_needed(&aur, &pkg, builds.path(), None).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dest.join("PKGBUILD")).unwrap(),
+            "local commit"
+        );
+    }
+
+    #[test]
+    fn root_build_identities_are_refused_before_spawning_tools() {
+        let mut command = Command::new("false");
+        assert!(as_build_user(&mut command, &Privileges { uid: 0, gid: 1000 }).is_err());
+        assert!(as_build_user(&mut command, &Privileges { uid: 1000, gid: 0 }).is_err());
+    }
 }

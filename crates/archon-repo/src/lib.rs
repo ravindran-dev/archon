@@ -101,12 +101,43 @@ impl OfficialRepos {
         cache_path: &Path,
     ) -> Result<Self, SyncDbError> {
         let paths = Self::db_paths(sync_dir, repo_order)?;
-        let Ok(fingerprint) = cache::Fingerprint::of_files(&paths) else {
-            return Self::load(sync_dir, repo_order);
-        };
+        Self::load_paths(&paths, Some(cache_path))
+    }
+
+    /// Load only enabled repositories, in the effective pacman.conf order.
+    /// Disabled databases left on disk must never influence resolution.
+    pub fn load_configured(
+        sync_dir: &Path,
+        repo_order: &[&str],
+        cache_path: Option<&Path>,
+    ) -> Result<Self, SyncDbError> {
+        let mut paths = Vec::new();
+        for name in repo_order {
+            if name.is_empty() || name.contains(['/', '\\']) || *name == "." || *name == ".." {
+                return Err(SyncDbError::Io {
+                    path: sync_dir.display().to_string(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "invalid repository name",
+                    ),
+                });
+            }
+            paths.push(sync_dir.join(format!("{name}.db")));
+        }
+        Self::load_paths(&paths, cache_path)
+    }
+
+    fn load_paths(
+        paths: &[std::path::PathBuf],
+        cache_path: Option<&Path>,
+    ) -> Result<Self, SyncDbError> {
+        let fingerprint = cache_path.and_then(|_| cache::Fingerprint::of_files(paths).ok());
 
         type Snapshot = Vec<(String, Vec<PackageMeta>)>;
-        if let Some(snapshot) = cache::try_read::<Snapshot>(cache_path, &fingerprint) {
+        if let Some(snapshot) = cache_path
+            .zip(fingerprint.as_ref())
+            .and_then(|(path, fingerprint)| cache::try_read::<Snapshot>(path, fingerprint))
+        {
             let dbs = snapshot
                 .into_iter()
                 .map(|(name, pkgs)| SyncDb::from_packages(name, pkgs))
@@ -118,11 +149,13 @@ impl OfficialRepos {
             .iter()
             .map(|p| SyncDb::load(p))
             .collect::<Result<Vec<_>, _>>()?;
-        let snapshot: Snapshot = dbs
-            .iter()
-            .map(|db| (db.name.clone(), db.packages().cloned().collect()))
-            .collect();
-        cache::write(cache_path, fingerprint, &snapshot);
+        if let Some((path, fingerprint)) = cache_path.zip(fingerprint) {
+            let snapshot: Snapshot = dbs
+                .iter()
+                .map(|db| (db.name.clone(), db.packages().cloned().collect()))
+                .collect();
+            cache::write(path, fingerprint, &snapshot);
+        }
         Ok(Self { dbs })
     }
 
@@ -285,5 +318,49 @@ mod tests {
                 .to_string(),
             "2.0-1"
         );
+    }
+    #[test]
+    fn configured_repositories_ignore_disabled_databases_and_cache_the_order() {
+        fn write_db(path: &Path, version: &str) {
+            let desc = format!("%NAME%\napp\n\n%VERSION%\n{version}\n\n");
+            let mut builder = tar::Builder::new(Vec::new());
+            let mut header = tar::Header::new_ustar();
+            header.set_size(desc.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "app/desc", desc.as_bytes())
+                .unwrap();
+            std::fs::write(path, builder.into_inner().unwrap()).unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_db(&dir.path().join("core.db"), "1-1");
+        write_db(&dir.path().join("custom.db"), "2-1");
+        std::fs::write(
+            dir.path().join("disabled.db"),
+            "deliberately invalid database",
+        )
+        .unwrap();
+        let cache = dir.path().join("cache.json");
+        for _ in 0..2 {
+            let repos =
+                OfficialRepos::load_configured(dir.path(), &["custom", "core"], Some(&cache))
+                    .unwrap();
+            assert_eq!(repos.repo_names().collect::<Vec<_>>(), ["custom", "core"]);
+            assert_eq!(
+                repos.get(&["app".into()]).unwrap()[0].version.to_string(),
+                "2-1"
+            );
+        }
+        let reversed =
+            OfficialRepos::load_configured(dir.path(), &["core", "custom"], Some(&cache)).unwrap();
+        assert_eq!(
+            reversed.get(&["app".into()]).unwrap()[0]
+                .version
+                .to_string(),
+            "1-1"
+        );
+        assert!(OfficialRepos::load_configured(dir.path(), &["missing"], None).is_err());
+        assert!(OfficialRepos::load_configured(dir.path(), &["../core"], None).is_err());
     }
 }

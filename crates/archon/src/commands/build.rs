@@ -15,7 +15,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use archon_monitor::EventStore;
 use archon_sandbox::SandboxRunner;
 
 use crate::commands::install;
@@ -30,6 +29,7 @@ pub fn run(dir: &Path, report: bool) -> Result<()> {
             dir.display()
         );
     }
+    let _lock = crate::build_lock::BuildLock::acquire(&dir)?;
     if !SandboxRunner::bwrap_available() {
         bail!(
             "bubblewrap (bwrap) is not installed — required to build packages safely.\n\
@@ -65,23 +65,9 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
     let privileges = install::require_monitoring_privileges()?;
     let mut monitor = install::load_monitor()?;
 
-    // The directory must be writable by the dropped-to build user, just
-    // like a freshly cloned AUR package would be.
-    install::ensure_owned_recursive(dir, privileges.uid, privileges.gid)
-        .with_context(|| format!("failed to chown {} to the build user", dir.display()))?;
-
-    let user_home = install::home_dir_for_uid(privileges.uid)?;
-    let build_root = install::build_dir_under(&user_home);
-    std::fs::create_dir_all(&build_root)
-        .with_context(|| format!("failed to create {}", build_root.display()))?;
-    // See install.rs's build_aur_packages_monitored for why the parent
-    // (the whole archon cache root, not just build/) needs this too.
-    if let Some(cache_root) = build_root.parent() {
-        install::ensure_owned(cache_root, privileges.uid, privileges.gid)?;
-    }
-    install::ensure_owned(&build_root, privileges.uid, privileges.gid)?;
-    let store =
-        EventStore::open(&build_root.join("monitor.db")).context("failed to open event store")?;
+    // The build must already be writable by its owner; never recursively
+    // chown a user-controlled tree from the privileged parent.
+    let store = install::open_monitor_store()?;
 
     let report = install::run_monitored_build(&mut monitor, &store, dir, pkg_name, &privileges)?;
     crate::ui::print_report(&report);
@@ -89,10 +75,7 @@ fn run_monitored(dir: &Path, pkg_name: &str) -> Result<()> {
     if report.is_clean() {
         report_outputs(dir, pkg_name)?;
     } else {
-        println!(
-            "{}",
-            crate::color::red("not installed — this is `build`, which never installs anyway")
-        );
+        bail!("build monitoring was inconclusive or reported violations; review the report above");
     }
     Ok(())
 }

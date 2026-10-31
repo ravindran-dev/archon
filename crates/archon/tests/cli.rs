@@ -1036,9 +1036,17 @@ elif sys.argv[1:4] != ['pacman', '-S', '--needed']:
     let dry = run_archon(&["install", "app", "--dry-run"], &env);
     assert!(dry.status.success(), "{}", dry.stderr);
     assert!(!log.exists());
+    let normal = run_archon(&["install", "app", "--yes"], &env);
+    assert!(normal.status.success(), "{}", normal.stderr);
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "pacman -S --needed app oldlib\n"
+    );
+    assert!(!normal.stdout.contains("pacman -Syu"));
+    std::fs::write(&log, "").unwrap();
     let mut fail_env = env.to_vec();
     fail_env.push(("TEST_SYNC_FAIL", "1"));
-    let failed = run_archon(&["install", "app", "--yes"], &fail_env);
+    let failed = run_archon(&["install", "app", "--refresh", "--yes"], &fail_env);
     assert!(!failed.status.success());
     assert!(
         failed.stderr.contains("system upgrade failed"),
@@ -1047,7 +1055,8 @@ elif sys.argv[1:4] != ['pacman', '-S', '--needed']:
     );
     assert_eq!(std::fs::read_to_string(&log).unwrap(), "pacman -Syu\n");
     std::fs::write(&log, "").unwrap();
-    let cancelled = common::run_archon_interactive(&["install", "app"], &env, "y\nn\n");
+    let cancelled =
+        common::run_archon_interactive(&["install", "app", "--refresh"], &env, "y\nn\n");
     assert!(cancelled.status.success(), "{}", cancelled.stderr);
     assert!(
         cancelled
@@ -1074,12 +1083,31 @@ elif sys.argv[1:4] != ['pacman', '-S', '--needed']:
     )
     .unwrap();
     std::fs::write(&log, "").unwrap();
-    let installed = run_archon(&["install", "app", "--yes"], &env);
+    let installed = run_archon(&["install", "app", "--refresh", "--yes"], &env);
     assert!(installed.status.success(), "{}", installed.stderr);
     assert!(
-        installed.stdout.contains("plan changed"),
+        installed
+            .stdout
+            .contains("Requested packages are installed"),
         "{}",
         installed.stdout
+    );
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "pacman -Syu\npacman -S --needed app newlib\n"
+    );
+    let (_empty, empty) = fixture_sync_dir(&[]);
+    std::fs::copy(
+        empty.join("core.db"),
+        std::path::Path::new(&sync).join("core.db"),
+    )
+    .unwrap();
+    std::fs::write(&log, "").unwrap();
+    let newly_available = run_archon(&["install", "app", "--refresh", "--yes"], &env);
+    assert!(
+        newly_available.status.success(),
+        "{}",
+        newly_available.stderr
     );
     assert_eq!(
         std::fs::read_to_string(&log).unwrap(),
@@ -1150,4 +1178,31 @@ sys.exit(int(os.environ.get('UPDATE_FAIL', '0')))
         failed.stderr
     );
     assert!(!failed.stdout.contains("Archon updated in"));
+}
+
+#[test]
+fn current_install_requests_return_without_sudo_or_refresh_or_confirmation() {
+    let pkgs = [FixturePkg {
+        name: "app",
+        version: "1-1",
+        depends: &[],
+    }];
+    let (_sync, sync) = fixture_sync_dir(&pkgs);
+    let (_local, local) = fixture_local_dir(&pkgs);
+    let (_cache, cache) = empty_cache_dir();
+    // No executables available: invoking sudo/pacman would fail this test.
+    let output = run_archon(
+        &["install", "app"],
+        &[
+            ("ARCHON_SYNC_DIR", sync.to_str().unwrap()),
+            ("ARCHON_LOCAL_DIR", local.to_str().unwrap()),
+            ("ARCHON_CACHE_DIR", cache.to_str().unwrap()),
+            ("ARCHON_AUR_URL", UNREACHABLE_AUR_URL),
+            ("PATH", ""),
+        ],
+    );
+    assert!(output.status.success(), "{}", output.stderr);
+    assert!(output.stdout.contains("already installed and up to date"));
+    assert!(!output.stdout.contains("Proceed"));
+    assert!(!output.stdout.contains("pacman -Syu"));
 }

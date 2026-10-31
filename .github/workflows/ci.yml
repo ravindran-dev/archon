@@ -24,6 +24,13 @@ jobs:
       # The real makepkg/bwrap build belongs to privileged VM validation.
       # All fixture-based adapters, HTTP mocks and helper tests run here.
       - run: cargo test --locked --workspace -- --skip build_command_succeeds_on_benign_demo_package
+      - run: cargo build --locked --release --bins
+      - name: AUR handoff and archive regressions (fixtures only)
+        env:
+          ARCHON_AUDIT_DEPS: ${{ github.workspace }}/target/release/deps
+        run: |
+          python3 scripts/repro-aur-install.py --direct
+          python3 scripts/check-archive-snapshot.py
 
   native-containers:
     runs-on: ubuntu-latest

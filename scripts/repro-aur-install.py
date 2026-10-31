@@ -47,7 +47,9 @@ if '--noextract' in sys.argv:
             if not pathlib.Path(os.environ['FIXTURE_LOG'] + '.dependency-installed').exists():
                 sys.exit('AUR dependency was not installed before dependent build')
         artifact = dest / (dest.name + '-1-1-x86_64.pkg.tar.zst')
-        artifact.write_text(json.dumps({'name': dest.name}))
+        artifact.write_text(json.dumps({'name': dest.name, 'version': '0-1'} if os.environ['FIXTURE_CASE'] == 'stale-version' else {'name': dest.name}))
+        if os.environ['FIXTURE_CASE'] == 'cached-old-version':
+            (dest / (dest.name + '-0-1-any.pkg.tar.zst')).write_text(json.dumps({'name': dest.name, 'version': '0-1'}))
         if os.environ['FIXTURE_CASE'] == 'split-base':
             for name in ['fixture-app', 'fixture-lib']:
                 (dest / (name + '-1-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': name}))
@@ -59,14 +61,18 @@ if '--noextract' in sys.argv:
         if os.environ['FIXTURE_CASE'] in ('signed-artifact', 'invalid-signature', 'signature-required'):
             pathlib.Path(str(artifact) + '.sig').write_bytes(b'fixture signature')
         if os.environ['FIXTURE_CASE'] == 'ambiguous-artifact':
-            (dest / (dest.name + '-0-1-x86_64.pkg.tar.zst')).write_text(json.dumps({'name': dest.name}))
+            (dest / (dest.name + '-1-1-any.pkg.tar.zst')).write_text(json.dumps({'name': dest.name}))
 ''')
         bwrap.chmod(0o755)
+        git = tools / 'git'
+        git.write_text('#!/usr/bin/python3\nimport sys\n# Successful clean-status, fetch and fast-forward fixtures.\nsys.exit(0)\n')
+        git.chmod(0o755)
         pacman = tools / 'pacman'
         pacman.write_text("""#!/usr/bin/python3
 import json, os, pathlib, sys
 if sys.argv[1:3] != ['-Qp', '--']: sys.exit('unexpected pacman invocation')
-print(json.loads(pathlib.Path(sys.argv[-1]).read_text())['name'] + ' 1-1')
+meta = json.loads(pathlib.Path(sys.argv[-1]).read_text())
+print(meta['name'] + ' ' + meta.get('version', '1-1'))
 if os.environ['FIXTURE_CASE'] == 'archive-race':
     origin = pathlib.Path(os.environ['XDG_CACHE_HOME']) / 'archon/build/fixture-app/fixture-app-1-1-x86_64.pkg.tar.zst'
     origin.write_text(json.dumps({'name': 'attacker-replacement'}))
@@ -105,15 +111,18 @@ print('PackageTrustedOnly')
         local.mkdir()
         recipe = work / 'cache/archon/build/fixture-app'
         recipe.mkdir(parents=True)
+        (recipe / '.git').mkdir()
         (recipe / 'PKGBUILD').write_text('pkgname=fixture-app\n')
         if case == 'split-base':
             for name in ['suite', 'fixture-lib']:
                 extra = recipe.parent / name
                 extra.mkdir()
+                (extra / '.git').mkdir()
                 (extra / 'PKGBUILD').write_text('pkgname=fixture\n')
         if case == 'dependency-chain':
             dependency_recipe = recipe.parent / 'z-lib'
             dependency_recipe.mkdir()
+            (dependency_recipe / '.git').mkdir()
             (dependency_recipe / 'PKGBUILD').write_text('pkgname=z-lib\n')
         osrelease = work / 'os-release'
         osrelease.write_text('ID=arch\n')
@@ -145,7 +154,7 @@ print('PackageTrustedOnly')
         print('mock privileged argv:', calls)
         payloads = [json.loads(line) for line in Path(str(log) + '.payloads').read_text().splitlines()] if Path(str(log) + '.payloads').exists() else []
         if payloads: print('installed fixture payloads:', payloads)
-        if case in ('success', 'signed-artifact', 'signature-required'):
+        if case in ('success', 'signed-artifact', 'signature-required', 'cached-old-version'):
             assert result.returncode == 0, 'install must succeed'
             assert len(calls) == 1, 'successful AUR install must invoke pacman -U exactly once'
             assert calls[0][:4] == ['fixture-pacman', '-U', '--needed', '--']
@@ -254,7 +263,7 @@ pub fn audit_unmonitored_install() -> Result<()> {
         wrapper = entry_wrapper
     (directory / 'install.rs').write_text(production + wrapper)
     modules = ''.join(f'#[path = {json.dumps(str(src / (name + ".rs")))}] mod {name};\n'
-                      for name in ['archive', 'color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
+                      for name in ['build_lock', 'archive', 'color', 'correction', 'pgp', 'search', 'spinner', 'srcinfo', 'ui'])
     modules += ('#[cfg(test)] extern crate self as audit_test;\n'
                 f'#[path = {json.dumps(str(src / "handoff.rs"))}] mod handoff;\nmod commands {{\n'
                 f'#[path = {json.dumps(str(directory / "install.rs"))}] pub mod install;\n'
@@ -289,7 +298,7 @@ if __name__ == '__main__':
     DIRECT = '--direct' in scenarios
     if DIRECT: scenarios.remove('--direct')
     if DIRECT:
-        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain', 'split-base', 'archive-identity', 'archive-race', 'invalid-signature', 'signature-required']
+        scenarios = scenarios or ['success', 'install-failure', 'build-failure', 'missing-artifact', 'signed-artifact', 'ambiguous-artifact', 'dependency-chain', 'split-base', 'archive-identity', 'archive-race', 'invalid-signature', 'signature-required', 'stale-version', 'cached-old-version']
         if 'dry-run' in scenarios:
             raise SystemExit('UNVERIFIED: direct harness does not exercise CLI dry-run dispatch')
         with tempfile.TemporaryDirectory(prefix='archon-direct-harness-') as harness:

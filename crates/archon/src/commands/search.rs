@@ -8,13 +8,11 @@
 //! specific), so this just runs the native tool's own search and prints
 //! its output as-is.
 
-use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use archon_aur::AurClient;
 use archon_distro::Distro;
-use archon_repo::OfficialRepos;
 
 use super::install;
 use crate::color;
@@ -34,13 +32,8 @@ pub fn run(term: &str, all: bool) -> Result<()> {
 
     let spinner = Spinner::start(format!("Searching for {term}"));
     let sync_dir = install::sync_dir();
-    let repo_cache = install::cache_dir().join("sync-db.json");
-    let official = match OfficialRepos::load_cached(
-        Path::new(&sync_dir),
-        archon_repo::DEFAULT_REPO_ORDER,
-        &repo_cache,
-    )
-    .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
+    let official = match install::load_official_repos(true)
+        .with_context(|| format!("failed to load official repo databases from {sync_dir}"))
     {
         Ok(v) => v,
         Err(e) => {

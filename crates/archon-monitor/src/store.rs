@@ -25,6 +25,7 @@ pub struct StoredEvent {
 }
 
 const SCHEMA: &str = "
+PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS builds (
     id          INTEGER PRIMARY KEY,
     package     TEXT NOT NULL,
@@ -74,11 +75,11 @@ impl EventStore {
         event: &SyscallEvent,
         flag_reason: Option<&FlagReason>,
     ) -> Result<(), StoreError> {
-        self.conn.execute(
+        self.conn.prepare_cached(
             "INSERT INTO events \
              (build_id, kind, pid, timestamp_ns, comm, path, open_flags, addr_v4, port, flag_reason) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+        )?.execute(params![
                 build_id,
                 event.kind,
                 event.pid,
@@ -89,8 +90,25 @@ impl EventStore {
                 event.addr_v4,
                 event.port,
                 flag_reason.map(|r| r.to_string()),
-            ],
-        )?;
+            ])?;
+        Ok(())
+    }
+
+    /// Persist a drained ring-buffer batch in one transaction, rather than
+    /// committing and synchronizing the database separately for each syscall.
+    pub fn record_batch(
+        &self,
+        build_id: i64,
+        events: &[(SyscallEvent, Option<FlagReason>)],
+    ) -> Result<(), StoreError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let transaction = self.conn.unchecked_transaction()?;
+        for (event, reason) in events {
+            self.record_event(build_id, event, reason.as_ref())?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -186,5 +204,27 @@ mod tests {
 
         assert_eq!(store.events_for_build(build_a).unwrap().len(), 1);
         assert_eq!(store.events_for_build(build_b).unwrap().len(), 1);
+    }
+    #[test]
+    fn batches_preserve_events_and_reject_unknown_builds() {
+        let store = EventStore::open_in_memory().unwrap();
+        let id = store.start_build("batch", 1).unwrap();
+        let events = vec![
+            (sample_event("/first"), None),
+            (
+                sample_event("/second"),
+                Some(FlagReason::WriteOutsideBuildDir {
+                    path: "/second".into(),
+                }),
+            ),
+        ];
+        store.record_batch(id, &events).unwrap();
+        let saved = store.events_for_build(id).unwrap();
+        assert_eq!(saved.len(), 2);
+        assert_eq!(saved[0].event.path_str(), "/first");
+        assert!(saved[1].flag_reason.is_some());
+        assert!(store.record_batch(id + 1, &events).is_err());
+        assert!(store.events_for_build(id + 1).unwrap().is_empty());
+        assert_eq!(store.events_for_build(id).unwrap().len(), 2);
     }
 }

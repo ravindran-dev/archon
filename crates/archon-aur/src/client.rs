@@ -143,6 +143,11 @@ impl AurClient {
             .map(|base| format!("{}/{}.git", self.base_url, base))
     }
 
+    /// Clone URL for an already validated PackageBase from resolved metadata.
+    pub fn clone_url_for_base(&self, base: &str) -> String {
+        format!("{}/{}.git", self.base_url.trim_end_matches('/'), base)
+    }
+
     pub fn package_base(&self, pkg_name: &str) -> Option<String> {
         self.bases.borrow().get(pkg_name).cloned()
     }

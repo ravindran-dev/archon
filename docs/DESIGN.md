@@ -286,10 +286,11 @@ Both stages retain makepkg's dependency checks. Archon's resolver installs
 runtime, build and check dependencies before the sandbox starts; makepkg then
 checks the actual recipe against the installed packages before doing work.
 Neither stage passes `--syncdeps`, so builds cannot install packages from
-inside the sandbox. Installation first runs `pacman -Syu` after confirmation,
-reloads metadata without disk caches, and resolves the request again before
-installing official dependencies and starting AUR builds. A changed plan is
-shown for confirmation. `--dry-run` uses local metadata without refreshing.
+inside the sandbox. Normal installation uses local metadata and performs no
+system upgrade. Explicit `install --refresh` runs `pacman -Syu` after
+confirmation, then loads fresh metadata and resolves the installation plan for
+confirmation. Refresh precedes resolution so stale databases cannot block it. Already-current requests without --refresh return immediately;
+`--dry-run` never refreshes or mutates installed packages.
 
 Build output is drained incrementally into a bounded 256 KiB tail. The stage
 bar shows elapsed time, the latest output, output volume and time since the

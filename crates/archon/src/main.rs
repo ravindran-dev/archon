@@ -8,6 +8,7 @@
 //! - `--dry-run` stops after printing the plan, guaranteed side-effect free.
 
 mod archive;
+mod build_lock;
 mod color;
 mod commands;
 mod correction;
@@ -175,6 +176,9 @@ enum Command {
         /// Skip the confirmation prompt (still refuses on resolution errors).
         #[arg(long)]
         yes: bool,
+        /// Refresh repositories with a full system upgrade before installing (Arch only).
+        #[arg(long)]
+        refresh: bool,
         /// Monitor AUR builds with eBPF and show a report before offering
         /// to install. Requires root — re-run the whole command under
         /// `sudo`; archon drops back to your normal user to run the
@@ -333,7 +337,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             dry_run,
             yes,
             report,
-        } => commands::install::run(&packages, dry_run, yes, report),
+            refresh,
+        } => commands::install::run(&packages, dry_run, yes, report, refresh),
         Command::Plan {
             packages,
             native: true,
@@ -345,7 +350,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             },
             json,
         ),
-        Command::Plan { packages, .. } => commands::install::run(&packages, true, false, false),
+        Command::Plan { packages, .. } => {
+            commands::install::run(&packages, true, false, false, false)
+        }
         Command::Remove {
             packages,
             dry_run,
