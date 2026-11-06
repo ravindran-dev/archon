@@ -278,3 +278,10 @@ monitoring still need successful end-to-end runs before production use.
 ## License
 
 [MIT](LICENSE)
+
+## Nizho development integration
+
+The immutable Nizho adapter and service-backed Flatpak workflow are described in
+[the Nizho integration notes](docs/NIZHO.md). System image-package deployment and
+production VM acceptance remain incomplete. These development changes must not
+be presented as a validated release.

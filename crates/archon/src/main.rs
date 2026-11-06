@@ -277,6 +277,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    if let Some(result) = commands::nizho::dispatch(&cli.command) {
+        return result;
+    }
     match cli.command {
         Command::Transaction { command } => match command {
             TransactionCommand::Plan {

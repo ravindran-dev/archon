@@ -74,9 +74,15 @@ PY
         fi
     fi
     printf 'y\n' | archon remove jq --yes
-    if command -v jq >/dev/null 2>&1; then
-        echo 'FAIL: jq is still installed after removal'; exit 1
-    fi
+    # Check the native package database, not PATH: an image may retain another
+    # jq binary or wrapper after the package manager has removed its package.
+    case "$expected" in
+        pacman) if pacman -Q jq >/dev/null 2>&1; then echo 'FAIL: jq remains in pacman database'; exit 1; fi ;;
+        apt) if dpkg-query -W -f='${db:Status-Abbrev}' jq 2>/dev/null | grep -q '^ii'; then echo 'FAIL: jq remains installed in dpkg database'; exit 1; fi ;;
+        dnf|zypper) if rpm -q jq >/dev/null 2>&1; then echo 'FAIL: jq remains in RPM database'; exit 1; fi ;;
+        apk) if apk info -e jq >/dev/null 2>&1; then echo 'FAIL: jq remains in apk database'; exit 1; fi ;;
+        *) echo 'FAIL: no package database check for this distro'; exit 1 ;;
+    esac
     echo 'PASS: native jq installation and removal'
 fi
 

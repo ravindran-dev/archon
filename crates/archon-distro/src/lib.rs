@@ -6,6 +6,7 @@
 //! capability, not a prerequisite for other distributions to gain deep support.
 
 mod backend;
+pub mod flatpak;
 pub mod image;
 pub mod transaction;
 
@@ -42,6 +43,9 @@ impl Distro {
         let path = std::env::var_os("ARCHON_OS_RELEASE")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/etc/os-release"));
+        if path == Path::new("/etc/os-release") && Path::new("/usr/lib/nizho-release").exists() {
+            return Distro::Unknown("Nizho (image backend unavailable)".into());
+        }
         if path == Path::new("/etc/os-release") && Path::new("/usr/lib/arkaos-release").exists() {
             return Distro::Unknown("ArkaOS (image backend unavailable)".into());
         }
@@ -66,6 +70,13 @@ impl Distro {
     /// same way as upstream.
     fn from_os_release(contents: &str) -> Self {
         let fields = parse_os_release(contents);
+        if fields
+            .get("NAME")
+            .is_some_and(|name| name == "Nizho" || name == "Nizho OS")
+            || fields.get("ID").is_some_and(|id| id == "nizho")
+        {
+            return Distro::Unknown("Nizho (image backend unavailable)".into());
+        }
         // ArkaOS keeps Fedora's ID for compatibility. Until an image backend
         // is validated, fail closed instead of exposing live DNF mutations.
         if fields.get("NAME").is_some_and(|name| name == "ArkaOS")
@@ -217,6 +228,22 @@ mod tests {
             Distro::from_os_release("ID=manjaro\nID_LIKE=arch\n"),
             Distro::Arch
         );
+    }
+
+    #[test]
+    fn nizho_never_selects_live_fedora_backend() {
+        for release in [
+            "ID=nizho\nID_LIKE=fedora\n",
+            "ID=fedora\nNAME=Nizho\n",
+            "ID=fedora\nNAME=\"Nizho OS\"\n",
+        ] {
+            let distro = Distro::from_os_release(release);
+            assert_eq!(
+                distro,
+                Distro::Unknown("Nizho (image backend unavailable)".into())
+            );
+            assert!(distro.backend().is_none());
+        }
     }
 
     #[test]
